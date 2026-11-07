@@ -1,4 +1,4 @@
-# CatForce INT
+# ntCatForce+
 
 A modified **CatForce**, the catalyst/conduit search program for Conway's Game of Life by Michael Simkin,
 extended to isotropic non-totalistic (INT/Hensel) rules, other Life-like rules and Golly `MAP` rules.

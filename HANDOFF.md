@@ -1,4 +1,4 @@
-# CatForce INT — handoff for a new chat
+# ntCatForce+ — handoff for a new chat
 
 Start a new chat in this folder and say: "Read HANDOFF.md first, then continue."
 Everything needed to keep working is in this repo. Nothing depends on the old chat.
