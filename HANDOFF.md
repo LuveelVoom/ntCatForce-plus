@@ -163,6 +163,13 @@ Engine changes (not visible in the input format):
   `CatForce/` (conway.in, .resume, results*) moved to `../results/qr4k-a4er/` (was `../catforce-work/`), with the
   4-catalyst edit that had overwritten `tests/conway.in` (as `conway-4cat.in`);
   `tests/conway.in` restored from git so the suite matches again.
+- 2026-11-10, B2n fix: `BigZOI()` (the "can interact next generation" area behind placement
+  candidates, early-hit masks and locus masks) was the 5x5 square without its corners. A cell
+  (+-2,+-2) from the pattern can interact when the dead middle cell's birth with both
+  (2n) differs from its birth with one (1c), so B2n rules (without B1c) lost every reaction
+  starting with such a birth. `SetRule` sets `cornerReach` for those rules and BigZOI is then the
+  full 5x5. Other rules unchanged (suite identical). Test `tests/b2n.in` (B2-a/S12, c/6 ship +
+  domino / 3-cell line): 0 -> 10 solutions, the same 10 placements as a casim brute force.
 
 ## 5. The generator (catforce_in_generator.html)
 

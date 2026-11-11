@@ -225,6 +225,12 @@ inline row_t RotateRight(row_t x) { return RotateRight(x, 1); }
 
 class LifeTarget;
 
+// True if a dead cell's birth with exactly two opposite-corner neighbours (2n)
+// differs from its birth with one of them (1c). Then cells at offset (+-2, +-2)
+// can interact through their shared neighbour, so BigZOI must be the full 5x5
+// square. Set by SetRule.
+static bool cornerReach = false;
+
 class LifeState {
 public:
   row_t state[N];
@@ -688,7 +694,14 @@ public:
     return boundary;
   }
 
+  // Cells that can interact with this pattern within one generation: the 5x5
+  // square without its corners, or the whole square when cornerReach (B2n rules).
   LifeState BigZOI() const {
+    if (cornerReach) {
+      LifeState full = ZOI().ZOI();
+      full.RecalculateMinMax();
+      return full;
+    }
     LifeState b;
     b.state[0] = state[0] | RotateLeft(state[0]) | RotateRight(state[0]) |
                  state[N - 1] | state[0 + 1];
@@ -1351,6 +1364,9 @@ static bool SetRule(const std::string &ruleIn, std::string &err) {
       isLife = false;
   }
   useFastLife = isLife;
+  // NW+SE = 0x81, NE+SW = 0x24 (masks: NW=0x80 NE=0x20 SW=0x04 SE=0x01)
+  cornerReach = birth[0x81] != birth[0x80] || birth[0x81] != birth[0x01] ||
+                birth[0x24] != birth[0x20] || birth[0x24] != birth[0x04];
   currentRuleName = rule;
   for (unsigned w = 0; w < (1u << 18); w++) {
     unsigned a = w & 0x3F, b = (w >> 6) & 0x3F, c = (w >> 12) & 0x3F;

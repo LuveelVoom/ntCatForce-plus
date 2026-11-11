@@ -1,0 +1,10 @@
+# B2n: a catalyst cell (+-2,+-2) from the pattern interacts through a 2n birth.
+# All 10 placements were checked with an independent simulator (exact recovery).
+rule B2-a/S12
+max-gen 40
+num-catalyst 1
+stable-interval 8
+pat o$o$bo! 1 1
+output o_b2n.rle
+cat 2o! 100 0 0 .
+cat 3o! 100 0 0 .
