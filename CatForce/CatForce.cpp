@@ -254,6 +254,9 @@ static void CheckRle(const std::string &rle, const std::string &what) {
           "\" (only o, b, $, digits and ! are allowed, with no spaces or x = ... header)");
 }
 
+typedef std::map<std::pair<int, int>, int> CellStates; // (x, y) -> state, live cells only
+static CellStates DecodeRleBody(const std::string &body, const std::string &what);
+
 class CatalystInput {
 public:
   std::string rle;
@@ -282,11 +285,13 @@ public:
   explicit CatalystInput(std::string &line) {
     std::vector<std::string> elems = splitwhitespace(line);
 
-    if (elems.size() < 6) {
+    // "cat <rle> <max-active> auto <symm>": the program picks the centre, and the
+    // coordinates of forbidden/required/antirequired/locus count from the RLE's top-left.
+    const bool autoCenter = elems.size() >= 4 && elems[3] == "auto";
+    if (elems.size() < (autoCenter ? 5u : 6u)) {
       std::cout << "The line " << line << " is invalid" << std::endl;
-      std::cout << "Format: cat <rle> <max-active> <centerX> <centerY> "
-                   "<symm Type | + / x *>"
-                << std::endl;
+      std::cout << "Format: cat <rle> <max-active> <dx> <dy> <symm . | - \\ / + x *>" << std::endl
+                << "    or: cat <rle> <max-active> auto <symm>" << std::endl;
       exit(1);
     }
 
@@ -295,12 +300,24 @@ public:
     if (rle.find('o') == std::string::npos)
       Die("cat " + rle + ": the catalyst has no live cells");
     maxDisappear = ParseIntOrDie(elems[2], "cat max-active", 0);
-    centerX = ParseIntOrDie(elems[3], "cat dx");
-    centerY = ParseIntOrDie(elems[4], "cat dy");
-    symmType = elems[5].at(0);
+    const unsigned symIdx = autoCenter ? 4 : 5;
+    if (autoCenter) {
+      // centre = middle cell of the RLE's extent (x 0..w-1, y 0..h-1), rounded towards the top-left
+      int w = 0, h = 0;
+      for (const auto &c : DecodeRleBody(rle, "cat " + rle)) {
+        w = std::max(w, c.first.first + 1);
+        h = std::max(h, c.first.second + 1);
+      }
+      centerX = -(w / 2);
+      centerY = -(h / 2);
+    } else {
+      centerX = ParseIntOrDie(elems[3], "cat dx");
+      centerY = ParseIntOrDie(elems[4], "cat dy");
+    }
+    symmType = elems[symIdx].at(0);
     // Anything else used to be treated silently as '.', i.e. no extra orientations
-    if (elems[5].size() != 1 || std::string(".|-\\/+@x*").find(symmType) == std::string::npos)
-      Die("cat " + rle + ": symmetry \"" + elems[5] + "\" must be one of . | - \\ / + x *");
+    if (elems[symIdx].size() != 1 || std::string(".|-\\/+@x*").find(symmType) == std::string::npos)
+      Die("cat " + rle + ": symmetry \"" + elems[symIdx] + "\" must be one of . | - \\ / + x *");
 
     transparent = false;
     mustInclude = false;
@@ -309,7 +326,7 @@ public:
     isBlinker = false;
     period = 1;
 
-    unsigned argi = 6;
+    unsigned argi = symIdx + 1;
 
     // attributes that take "<rle> <x> <y>" or "<n>" need that many more tokens
     auto needTokens = [&](unsigned n) {
@@ -356,7 +373,7 @@ public:
       } else if (elems[argi] == "sacrificial") {
         sacrificial = true;
         argi += 1;
-      } else if (elems[argi] == "isblinker") {
+      } else if (elems[argi] == "any-phase" || elems[argi] == "isblinker") { // isblinker: old name
         isBlinker = true;
         argi += 1;
       } else if (elems[argi] == "max-uses") {
@@ -377,6 +394,12 @@ public:
         std::cout << "Unknown catalyst attribute: " << elems[argi] << std::endl;
         exit(1);
       }
+    }
+    if (autoCenter) {
+      for (auto &xy : forbiddenXY) { xy.first += centerX; xy.second += centerY; }
+      requiredXY.first += centerX; requiredXY.second += centerY;
+      antirequiredXY.first += centerX; antirequiredXY.second += centerY;
+      locusXY.first += centerX; locusXY.second += centerY;
     }
   }
 
@@ -1397,6 +1420,8 @@ void ReadParams(const std::string& fname, std::vector<CatalystInput> &catalysts,
       }
     }
     if (elems[0] == "lightcone-tight")
+      std::cout << "Warning: lightcone-tight is deprecated and may be removed (it can lose results)" << std::endl;
+    if (elems[0] == "lightcone-tight")
       params.lightconeTight = !(elems[1] == "no" || elems[1] == "false" || elems[1] == "0" || elems[1] == "off");
     if (elems[0] == "lightcone")
       params.lightcone = !(elems[1] == "no" || elems[1] == "false" || elems[1] == "0" || elems[1] == "off");
@@ -1527,11 +1552,25 @@ static std::atomic<unsigned long> gNextTicket{0};
 static thread_local unsigned long tlsTicket = ~0UL, tlsQual = 0;
 
 // Set by Ctrl-C; the search then stops cleanly and still saves its results.
+// A second Ctrl-C quits at once without saving, but only if it comes at least
+// kQuitDelay seconds after the first, so a double tap can't lose the results.
 static volatile std::sig_atomic_t gInterrupted = 0;
+static struct timespec gFirstInterrupt;
+static const double kQuitDelay = 2.0;
 static void OnInterrupt(int) {
-  if (gInterrupted)
-    std::_Exit(130); // second Ctrl-C: quit immediately
-  gInterrupted = 1;
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now); // async-signal-safe
+  if (!gInterrupted) {
+    gFirstInterrupt = now;
+    gInterrupted = 1;
+    return;
+  }
+  double dt = (now.tv_sec - gFirstInterrupt.tv_sec) + (now.tv_nsec - gFirstInterrupt.tv_nsec) * 1e-9;
+  if (dt >= kQuitDelay)
+    std::_Exit(130);
+  static const char msg[] = "\n(Ctrl-C ignored: still saving. To quit without saving, wait 2 s and press it again.)\n";
+  ssize_t ignored = write(STDOUT_FILENO, msg, sizeof msg - 1);
+  (void)ignored;
 }
 
 // RLE (with "!") of the live cells of `st` inside their bounding box; also
@@ -1669,9 +1708,9 @@ std::vector<CatalystData> CatalystData::FromInput(CatalystInput &input) {
     }
     if (found) {
       input.period = found;
-      std::cout << "isblinker: detected period " << found << " for " << input.rle << std::endl;
+      std::cout << "any-phase: detected period " << found << " for " << input.rle << std::endl;
     } else {
-      std::cout << "Warning: isblinker catalyst " << input.rle
+      std::cout << "Warning: any-phase catalyst " << input.rle
                 << " is not an oscillator of period <= 32 in this rule" << std::endl;
     }
   }
@@ -2527,7 +2566,7 @@ public:
     if (gInterrupted && !stopFlag.exchange(true)) {
       std::lock_guard<std::mutex> lk(mtx);
       stopReason = "interrupted (Ctrl-C)";
-      std::cout << std::endl << "Stopping and saving... (press Ctrl-C again to quit at once)" << std::endl;
+      std::cout << std::endl << "Stopping and saving... (Ctrl-C again, 2 s or more from now, quits without saving)" << std::endl;
     }
     if (stopFlag.load(std::memory_order_relaxed))
       return true;

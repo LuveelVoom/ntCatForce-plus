@@ -124,6 +124,14 @@ details.more > .body { display: flex; flex-direction: column; gap: 12px; }
 .cat details.more > summary { font-size: 13px; }
 .sub-rows { display: flex; flex-direction: column; gap: 6px; }
 .subrow { display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px auto; gap: 6px; align-items: start; }
+/* catalyst cell editor (locus / required / antirequired) */
+.celled { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.cat canvas.celled-cv { width: 264px; height: 264px; max-width: 100%; cursor: pointer; }
+.celled-side { flex: 1 1 200px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.celled-xy { font-family: var(--f-mono); font-size: 13px; color: var(--muted); min-height: 2.6em; }
+button.seg i { display: inline-block; width: 10px; height: 10px; border: 2px solid; margin-right: 6px; vertical-align: -1px; }
+button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
+.map-xy { font-family: var(--f-mono); font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 6px; }
 @media (max-width: 560px) {
   .cat, .obj { grid-template-columns: 48px minmax(0, 1fr); }
   .obj canvas, .cat canvas { width: 48px; height: 48px; }
@@ -368,6 +376,7 @@ details.more > .body { display: flex; flex-direction: column; gap: 12px; }
   <section class="panel">
     <h2>Map <span class="opt" id="mapSize">64 × 64 torus</span></h2>
     <canvas id="map" width="384" height="384" role="img" aria-label="Map of the starting pattern and the area where catalysts may be placed"></canvas>
+    <div id="mapXY" class="map-xy">Axes cross at (0, 0). x grows right, y grows down.</div>
     <div class="legend">
       <span><i style="background:var(--cell)"></i>active pattern</span>
       <span><i style="background:var(--ghost)"></i>symmetric copy</span>
@@ -771,7 +780,8 @@ function defaultState() {
   };
 }
 function newCat() {
-  return {name: '', rle: '', maxActive: '20', sym: 'auto', autoOff: true, dx: '0', dy: '0',
+  // rel: forbidden/req/anti/locus x, y count from the catalyst RLE's top-left (see catCellsToFile)
+  return {name: '', rle: '', maxActive: '20', sym: 'auto', autoOff: true, dx: '0', dy: '0', rel: true,
     forbidden: [], req: {rle: '', x: '0', y: '0'}, anti: {rle: '', x: '0', y: '0'}, locus: {rle: '', x: '0', y: '0'},
     transparent: false, mustinclude: false, checkRecovery: false, sacrificial: false, isBlinker: false, period: '',
     maxUses: '', zone: {rle: '', x: '0', y: '0'}};
@@ -997,19 +1007,23 @@ function build(S, forSetup) {
     if (!isInt(rs.dx) || !isInt(rs.dy)) { err(n + ': offset must be whole numbers.'); return; }
     if (!CHAR_TF[rs.sym]) { err(n + ': unknown orientation code "' + rs.sym + '".'); return; }
     let line = 'cat ' + rle + ' ' + tr(c.maxActive) + ' ' + rs.dx + ' ' + rs.dy + ' ' + rs.sym;
-    const xy = (kw, o) => {
+    // shift = true: x, y are from the catalyst's top-left; CatForce wants them in the frame
+    // where that top-left sits at (dx, dy). zone is in torus coordinates and is not shifted.
+    const xy = (kw, o, shift) => {
       const r2 = rleOf(o.rle, n + ' ' + kw); if (!r2) return '';
       if (!isInt(o.x) || !isInt(o.y)) { err(n + ' ' + kw + ': x and y must be whole numbers.'); return ''; }
-      return ' ' + kw + ' ' + r2 + ' ' + tr(o.x) + ' ' + tr(o.y);
+      const x = +tr(o.x) + (shift ? +rs.dx : 0), y = +tr(o.y) + (shift ? +rs.dy : 0);
+      return ' ' + kw + ' ' + r2 + ' ' + x + ' ' + y;
     };
-    for (const f of c.forbidden) line += xy('forbidden', f);
-    line += xy('required', c.req) + xy('antirequired', c.anti) + xy('locus', c.locus) + xy('zone', c.zone || {rle: ''});
+    for (const f of c.forbidden) line += xy('forbidden', f, true);
+    line += xy('required', c.req, true) + xy('antirequired', c.anti, true) + xy('locus', c.locus, true) + xy('zone', c.zone || {rle: ''}, false);
+    for (const m of checkCatCells(c)) (m.t === 'err' ? err : m.t === 'warn' ? warn : tip)(n + ': ' + m.m);
     if (tr(c.maxUses)) { if (!isInt(c.maxUses) || +c.maxUses < 1) err(n + ': "at most" must be a whole number of at least 1.'); else line += ' max-uses ' + tr(c.maxUses); }
     if (c.transparent) line += ' transparent';
     if (c.mustinclude) line += ' mustinclude';
     if (c.checkRecovery) line += ' check-recovery';
     if (c.sacrificial) line += ' sacrificial';
-    if (c.isBlinker) line += ' isblinker';
+    if (c.isBlinker) line += ' any-phase';
     if (tr(c.period)) { if (!isInt(c.period) || +c.period < 1) err(n + ': period must be a positive whole number.'); else line += ' period ' + tr(c.period); }
     L.push(line);
     const cls = info.cls;
@@ -1305,16 +1319,21 @@ function parseIn(text) {
         st.baits.push(b); break;
       }
       case 'cat': {
-        if (t.length < 6) { ignored.push(line.trim()); break; }
+        const auto = t[3] === 'auto';
+        if (t.length < (auto ? 5 : 6)) { ignored.push(line.trim()); break; }
         const c = newCat();
-        c.rle = t[1]; c.maxActive = t[2]; c.dx = t[3]; c.dy = t[4]; c.sym = t[5][0] === '@' ? '+' : t[5][0]; c.autoOff = false;
-        let i = 6;
+        c.rle = t[1]; c.maxActive = t[2];
+        let i;
+        if (auto) { c.autoOff = true; c.sym = t[4][0] === '@' ? '+' : t[4][0]; i = 5; }
+        else { c.dx = t[3]; c.dy = t[4]; c.sym = t[5][0] === '@' ? '+' : t[5][0]; c.autoOff = false; i = 6; }
+        // the file's option x, y are in the frame where the catalyst's top-left is at (dx, dy)
+        const ox = auto ? 0 : parseInt(c.dx, 10) || 0, oy = auto ? 0 : parseInt(c.dy, 10) || 0;
+        const rel = (a, b) => ({x: String((parseInt(a, 10) || 0) - ox), y: String((parseInt(b, 10) || 0) - oy)});
         while (i < t.length) {
           const w = t[i];
-          if (w === 'forbidden') { c.forbidden.push({rle: t[i + 1] || '', x: t[i + 2] || '0', y: t[i + 3] || '0'}); i += 4; }
+          if (w === 'forbidden') { c.forbidden.push({rle: t[i + 1] || '', ...rel(t[i + 2], t[i + 3])}); i += 4; }
           else if (w === 'required' || w === 'antirequired' || w === 'locus') {
-            const o = w === 'required' ? c.req : w === 'antirequired' ? c.anti : c.locus;
-            o.rle = t[i + 1] || ''; o.x = t[i + 2] || '0'; o.y = t[i + 3] || '0'; i += 4;
+            c[w === 'required' ? 'req' : w === 'antirequired' ? 'anti' : 'locus'] = {rle: t[i + 1] || '', ...rel(t[i + 2], t[i + 3])}; i += 4;
           }
           else if (w === 'period') { c.period = t[i + 1] || ''; i += 2; }
           else if (w === 'max-uses') { c.maxUses = t[i + 1] || ''; i += 2; }
@@ -1323,7 +1342,7 @@ function parseIn(text) {
           else if (w === 'mustinclude') { c.mustinclude = true; i++; }
           else if (w === 'check-recovery') { c.checkRecovery = true; i++; }
           else if (w === 'sacrificial') { c.sacrificial = true; i++; }
-          else if (w === 'isblinker') { c.isBlinker = true; i++; }
+          else if (w === 'any-phase' || w === 'isblinker') { c.isBlinker = true; i++; }
           else { ignored.push('catalyst option "' + w + '"'); i++; }
         }
         st.cats.push(c); break;
@@ -1494,25 +1513,28 @@ function renderCats() {
             <label class="fld grow"><span class="lbl">Pattern</span><textarea data-k="cats.${i}.rle" data-rle="1" data-re="cats" rows="2" spellcheck="false">${esc(c.rle)}</textarea></label>
           </div>
           <div class="inline">
-            <label class="check" style="align-self:center"><input type="checkbox" data-k="cats.${i}.autoOff" data-re="cats"${c.autoOff ? ' checked' : ''}><span>Centre it automatically <small>offset ${esc(rs.dx)}, ${esc(rs.dy)}</small></span></label>
+            <label class="check" style="align-self:center"><input type="checkbox" data-k="cats.${i}.autoOff" data-re="cats"${c.autoOff ? ' checked' : ''}><span>Centre it automatically <small>top-left at ${esc(rs.dx)}, ${esc(rs.dy)}; the + on the grid is the point the search area applies to</small></span></label>
             ${c.autoOff ? '' : `<label class="fld"><span class="lbl">dx</span><input type="text" data-k="cats.${i}.dx" value="${esc(c.dx)}" inputmode="numeric"></label>
             <label class="fld"><span class="lbl">dy</span><input type="text" data-k="cats.${i}.dy" value="${esc(c.dy)}" inputmode="numeric"></label>`}
             <label class="fld"><span class="lbl">Period <code>period</code></span><input type="text" data-k="cats.${i}.period" value="${esc(c.period)}" inputmode="numeric" placeholder="1"></label>
             <label class="fld"><span class="lbl">At most per result <code>max-uses</code></span><input type="text" data-k="cats.${i}.maxUses" value="${esc(c.maxUses || '')}" inputmode="numeric" placeholder="no limit"></label>
           </div>
           <div class="checks">
-            <label class="check"><input type="checkbox" data-k="cats.${i}.isBlinker"${c.isBlinker ? ' checked' : ''}><span>Accept any phase <code>isblinker</code><small>An oscillator counts as recovered in any of its phases.</small></span></label>
+            <label class="check"><input type="checkbox" data-k="cats.${i}.isBlinker"${c.isBlinker ? ' checked' : ''}><span>Accept any phase <code>any-phase</code><small>An oscillator counts as recovered in any of its phases.</small></span></label>
             <label class="check"><input type="checkbox" data-k="cats.${i}.sacrificial" data-re="cats"${c.sacrificial ? ' checked' : ''}><span>Sacrificial <code>sacrificial</code><small>Does not need to recover.</small></span></label>
             <label class="check"><input type="checkbox" data-k="cats.${i}.mustinclude"${c.mustinclude ? ' checked' : ''}><span>Required <code>mustinclude</code><small>Every result uses at least one catalyst marked this way.</small></span></label>
             <label class="check"><input type="checkbox" data-k="cats.${i}.transparent"${c.transparent ? ' checked' : ''}><span>Transparent <code>transparent</code><small>Counts toward "transparent catalysts allowed".</small></span></label>
             <label class="check"><input type="checkbox" data-k="cats.${i}.checkRecovery"${c.checkRecovery ? ' checked' : ''}><span>Check recovery time <code>check-recovery</code><small>It must recover in exactly "may be missing for" generations.</small></span></label>
           </div>
-          <h3>Forbidden nearby <span class="opt"><code>forbidden</code>: drop the result if this appears at the catalyst, relative to its top-left</span></h3>
+          <h3>Cells <span class="opt">click a cell to add or remove it</span></h3>
+          ${cellEditorHTML(c, i, rs)}
+          <p class="hint">Every x, y below counts from the catalyst's top-left cell, as on the grid above. The file gets them shifted by the centre offset (${esc(rs.dx)}, ${esc(rs.dy)}).</p>
+          <h3>Must be hit first <span class="opt"><code>locus</code></span></h3>${subRow(`cats.${i}.locus`, c.locus, 'Locus')}
+          <h3>Must stay as without the reaction <span class="opt"><code>required</code></span></h3>${subRow(`cats.${i}.req`, c.req, 'Required')}
+          <h3>Must stay off <span class="opt"><code>antirequired</code></span></h3>${subRow(`cats.${i}.anti`, c.anti, 'Antirequired')}
+          <h3>Forbidden nearby <span class="opt"><code>forbidden</code>: drop the result if this pattern ever appears here</span></h3>
           <div class="sub-rows">${c.forbidden.map((f, j) => subRow(`cats.${i}.forbidden.${j}`, f, 'Forbidden ' + (j + 1), i, j)).join('')}</div>
           <div class="btnrow"><button class="small" data-act="addForbid" data-i="${i}">Add a forbidden pattern</button></div>
-          <h3>Cells that must stay on <span class="opt"><code>required</code></span></h3>${subRow(`cats.${i}.req`, c.req, 'Required')}
-          <h3>Cells that must stay off <span class="opt"><code>antirequired</code></span></h3>${subRow(`cats.${i}.anti`, c.anti, 'Antirequired')}
-          <h3>Cells that must be hit first <span class="opt"><code>locus</code>: or click cells on the thumbnail (red outline)</span></h3>${subRow(`cats.${i}.locus`, c.locus, 'Locus')}
           <h3>Only inside this area <span class="opt"><code>zone</code>: cells on the torus (x, y = top-left) the catalyst must lie within</span></h3>${subRow(`cats.${i}.zone`, c.zone || {rle: '', x: '0', y: '0'}, 'Zone')}
         </div></details>
       </div>
@@ -1527,37 +1549,164 @@ function renderCats() {
   renderLib();
 }
 
-// Catalyst thumbnail with its locus (cells that must be hit first) in red; click a cell to toggle it.
+/* ---------- catalyst cells: locus, required, antirequired ----------
+   All in the catalyst's own frame: (0, 0) is the top-left of its RLE, x right, y down.
+   CatForce's frame puts that top-left at (dx, dy), so the origin (0, 0) there is the
+   cell (-dx, -dy) here: the point that search-area limits (marked + on the grid). */
+const CELL_KINDS = {
+  locus: {key: 'locus', kw: 'locus', label: 'Hit first', color: '--err', help: 'Reactions must touch these cells first.'},
+  req: {key: 'req', kw: 'required', label: 'Keep as is', color: '--warn', help: 'Must match the catalyst on its own every generation: a live cell stays on (a dead one stays off).'},
+  anti: {key: 'anti', kw: 'antirequired', label: 'Keep off', color: '--tip', help: 'Must stay dead every generation.'}
+};
+const paintMode = new Map(); // catalyst index -> 'locus' | 'req' | 'anti' (not saved)
+function subCells(o) {
+  if (!o || !tr(o.rle)) return [];
+  const d = decodeRle(cleanRle(o.rle).rle), x = parseInt(o.x, 10) || 0, y = parseInt(o.y, 10) || 0;
+  return d.cells.map(([a, b]) => [a + x, b + y]);
+}
+function setSubCells(c, key, L) {
+  if (!L.length) { c[key] = {rle: '', x: '0', y: '0'}; return; }
+  const bb = bbox(L);
+  c[key] = {rle: encodeRle(L.map(([a, b]) => [a - bb.x0, b - bb.y0])), x: String(bb.x0), y: String(bb.y0)};
+}
+// Live cells of each phase (phase 0 = as drawn), for the period set or detected.
+function catPhases(c) {
+  const info = catInfo(cleanRle(c.rle).rle);
+  if (!info.n) return [];
+  let p = isInt(c.period) && +c.period > 0 ? +c.period : (info.cls && info.cls.type === 'osc' ? info.cls.period : 1);
+  p = Math.min(p, 64);
+  const key = 'phases|' + S.rule + '|' + cleanRle(c.rle).rle + '|' + p;
+  if (catCache.has(key)) return catCache.get(key);
+  const R = ruleOk(), out = [new Set(info.cells.map(q => q.join(',')))];
+  if (R.ok) for (let k = 1; k < p; k++) out.push(stepCells(out[k - 1], R));
+  catCache.set(key, out);
+  return out;
+}
+function checkCatCells(c) {
+  const msgs = [], ph = catPhases(c); if (!ph.length) return msgs;
+  const live = ([x, y]) => ph.findIndex(P => P.has(x + ',' + y));
+  const fmt = L => L.slice(0, 3).map(q => '(' + q[0] + ', ' + q[1] + ')').join(', ') + (L.length > 3 ? '…' : '');
+  const badAnti = subCells(c.anti).filter(q => live(q) >= 0);
+  if (badAnti.length) msgs.push({t: 'err', m: 'antirequired cell ' + fmt(badAnti) + ' is alive in the catalyst itself' + (ph.length > 1 ? ' (in some phase)' : '') + ', so every placement fails.'});
+  const L = subCells(c.locus);
+  if (L.length && !L.some(([x, y]) => { for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if (live([x + a, y + b]) >= 0) return true; return false; }))
+    msgs.push({t: 'warn', m: 'the locus is not next to any cell of the catalyst.'});
+  const both = subCells(c.req).filter(([x, y]) => subCells(c.anti).some(q => q[0] === x && q[1] === y));
+  if (both.length) msgs.push({t: 'warn', m: 'cell ' + fmt(both) + ' is both required and antirequired.'});
+  return msgs;
+}
+function cellEditorHTML(c, i, rs) {
+  const mode = paintMode.get(i) || 'locus';
+  const btn = k => `<button class="small seg${mode === k ? ' on' : ''}" data-act="paintMode" data-i="${i}" data-mode="${k}" aria-pressed="${mode === k}"><i style="border-color:var(${CELL_KINDS[k].color})"></i>${esc(CELL_KINDS[k].label)} <code>${CELL_KINDS[k].kw}</code></button>`;
+  const counts = Object.keys(CELL_KINDS).map(k => subCells(c[k]).length);
+  return `<div class="celled">
+    <canvas class="celled-cv" data-i="${i}" width="264" height="264" aria-label="Cell editor for ${esc(catLabel(c, i))}"></canvas>
+    <div class="celled-side">
+      <div class="btnrow">${Object.keys(CELL_KINDS).map(btn).join('')}</div>
+      <small>${esc(CELL_KINDS[mode].help)}</small>
+      <div class="celled-xy" data-i="${i}">Point at a cell to see its coordinates.</div>
+      <div class="btnrow">${Object.keys(CELL_KINDS).map((k, j) => counts[j] ? `<button class="small danger" data-act="clearCells" data-i="${i}" data-mode="${k}">Clear ${esc(CELL_KINDS[k].label.toLowerCase())} (${counts[j]})</button>` : '').join('')}</div>
+    </div></div>`;
+}
+// Grid shown by the editor: the catalyst (all phases) plus its marked cells, with a 2-cell margin.
+function editorGeom(c, cv) {
+  const ph = catPhases(c), pts = [];
+  for (const P of ph) for (const k of P) pts.push(k.split(',').map(Number));
+  for (const k of Object.keys(CELL_KINDS)) pts.push(...subCells(c[k]));
+  const rs = catResolved(c); pts.push([-(+rs.dx), -(+rs.dy)]);
+  const b = bbox(pts), m = 2, x0 = b.x0 - m, y0 = b.y0 - m, w = b.w + 2 * m, h = b.h + 2 * m;
+  const sc = Math.max(4, Math.min(28, Math.floor(cv.width / Math.max(w, h))));
+  return {x0, y0, w, h, sc, ox: Math.floor((cv.width - w * sc) / 2), oy: Math.floor((cv.height - h * sc) / 2), ph, rs};
+}
+function drawCellEditor(cv) {
+  const c = S.cats[+cv.dataset.i]; if (!c) return;
+  const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, cv.width, cv.height);
+  const info = catInfo(cleanRle(c.rle).rle); if (!info.n) return;
+  const g = editorGeom(c, cv), px = x => g.ox + (x - g.x0) * g.sc, py = y => g.oy + (y - g.y0) * g.sc;
+  ctx.strokeStyle = cssVar('--grid'); ctx.lineWidth = 1;
+  for (let i = 0; i <= g.w; i++) { ctx.beginPath(); ctx.moveTo(px(g.x0 + i) + .5, py(g.y0)); ctx.lineTo(px(g.x0 + i) + .5, py(g.y0 + g.h)); ctx.stroke(); }
+  for (let j = 0; j <= g.h; j++) { ctx.beginPath(); ctx.moveTo(px(g.x0), py(g.y0 + j) + .5); ctx.lineTo(px(g.x0 + g.w), py(g.y0 + j) + .5); ctx.stroke(); }
+  // other phases faint, phase 0 (as drawn) solid
+  ctx.fillStyle = cssVar('--ghost');
+  for (let k = 1; k < g.ph.length; k++) for (const q of g.ph[k]) { const [x, y] = q.split(',').map(Number); if (!g.ph[0].has(q)) ctx.fillRect(px(x) + 2, py(y) + 2, g.sc - 3, g.sc - 3); }
+  ctx.fillStyle = cssVar('--cell');
+  for (const [x, y] of info.cells) ctx.fillRect(px(x) + 1, py(y) + 1, g.sc - 1, g.sc - 1);
+  // the catalyst's top-left (0, 0) in this frame and CatForce's origin (+)
+  ctx.strokeStyle = cssVar('--axis'); ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.strokeRect(px(0) + .5, py(0) + .5, info.w * g.sc, info.h * g.sc); ctx.setLineDash([]);
+  const ox = -(+g.rs.dx), oy = -(+g.rs.dy), cx = px(ox) + g.sc / 2, cy = py(oy) + g.sc / 2, r = Math.max(3, g.sc / 2 - 1);
+  ctx.strokeStyle = cssVar('--accent'); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy); ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r); ctx.stroke();
+  // marks: locus = outline, required = inner square, antirequired = cross
+  const L = subCells(c.locus), Q = subCells(c.req), A = subCells(c.anti);
+  ctx.lineWidth = 2; ctx.strokeStyle = cssVar('--err');
+  for (const [x, y] of L) ctx.strokeRect(px(x) + 1.5, py(y) + 1.5, g.sc - 2, g.sc - 2);
+  ctx.strokeStyle = cssVar('--warn'); const in4 = Math.max(2, g.sc / 4);
+  for (const [x, y] of Q) ctx.strokeRect(px(x) + in4, py(y) + in4, g.sc - 2 * in4, g.sc - 2 * in4);
+  ctx.strokeStyle = cssVar('--tip');
+  for (const [x, y] of A) { ctx.beginPath(); ctx.moveTo(px(x) + in4, py(y) + in4); ctx.lineTo(px(x + 1) - in4, py(y + 1) - in4); ctx.moveTo(px(x + 1) - in4, py(y) + in4); ctx.lineTo(px(x) + in4, py(y + 1) - in4); ctx.stroke(); }
+}
+function editorCell(cv, e) {
+  const c = S.cats[+cv.dataset.i], g = editorGeom(c, cv), r = cv.getBoundingClientRect();
+  const x = Math.floor(((e.clientX - r.left) * cv.width / r.width - g.ox) / g.sc) + g.x0, y = Math.floor(((e.clientY - r.top) * cv.height / r.height - g.oy) / g.sc) + g.y0;
+  if (x < g.x0 || y < g.y0 || x >= g.x0 + g.w || y >= g.y0 + g.h) return null;
+  return {c, g, x, y};
+}
+function describeCell(h) {
+  const {c, g, x, y} = h, k = x + ',' + y, onIn = g.ph.findIndex(P => P.has(k));
+  const marks = Object.keys(CELL_KINDS).filter(m => subCells(c[m]).some(q => q[0] === x && q[1] === y)).map(m => CELL_KINDS[m].kw);
+  return `x ${x}, y ${y} from the top-left · in the file ${x + +g.rs.dx}, ${y + +g.rs.dy} · ` +
+    (g.ph[0].has(k) ? 'catalyst cell' : onIn > 0 ? 'alive in phase ' + onIn : 'dead') + (marks.length ? ' · ' + marks.join(', ') : '');
+}
+function toggleCatCell(c, i, x, y) {
+  const mode = paintMode.get(i) || 'locus', L = subCells(c[mode]), k = L.findIndex(q => q[0] === x && q[1] === y);
+  if (k >= 0) L.splice(k, 1); else L.push([x, y]);
+  setSubCells(c, mode, L);
+  renderCats(); update();
+}
+function drawCatThumb(el) {
+  const c = S.cats[+el.dataset.i], info = catInfo(cleanRle(c.rle).rle), cv = $('canvas', el);
+  drawCells(cv, info.cells);
+  const ed = $('.celled-cv', el); if (ed) drawCellEditor(ed);
+  if (!info.n) return;
+  const g = thumbGeom(cv, info.cells), ctx = cv.getContext('2d');
+  const box = ([x, y], inset) => ctx.strokeRect(g.ox + (x - g.b.x0) * g.sc + inset, g.oy + (y - g.b.y0) * g.sc + inset, g.sc - 2 * inset, g.sc - 2 * inset);
+  ctx.lineWidth = 2; ctx.strokeStyle = cssVar('--err'); subCells(c.locus).forEach(q => box(q, 1));
+  ctx.strokeStyle = cssVar('--warn'); subCells(c.req).forEach(q => box(q, 3));
+  ctx.strokeStyle = cssVar('--tip'); subCells(c.anti).forEach(q => box(q, 3));
+}
 function thumbGeom(cv, cells) {
   const b = bbox(cells), sc = Math.max(2, Math.min(18, Math.floor((cv.width - 12) / Math.max(b.w, b.h))));
   return {b, sc, ox: Math.floor((cv.width - b.w * sc) / 2), oy: Math.floor((cv.height - b.h * sc) / 2)};
 }
-function locusCells(c) { const l = c.locus, d = decodeRle(cleanRle(l.rle).rle); return d.cells.map(([x, y]) => [x + (parseInt(l.x, 10) || 0), y + (parseInt(l.y, 10) || 0)]); }
-function drawCatThumb(el) {
-  const c = S.cats[+el.dataset.i], info = catInfo(cleanRle(c.rle).rle), cv = $('canvas', el);
-  drawCells(cv, info.cells);
-  if (!info.n) return;
-  const g = thumbGeom(cv, info.cells), ctx = cv.getContext('2d');
-  ctx.strokeStyle = cssVar('--err'); ctx.lineWidth = 2;
-  for (const [x, y] of locusCells(c)) ctx.strokeRect(g.ox + (x - g.b.x0) * g.sc + 1, g.oy + (y - g.b.y0) * g.sc + 1, g.sc - 2, g.sc - 2);
-  // required cells (must stay on) in yellow
-  const rq = c.req, rd = decodeRle(cleanRle(rq.rle).rle), rx = parseInt(rq.x, 10) || 0, ry = parseInt(rq.y, 10) || 0;
-  ctx.strokeStyle = cssVar('--warn');
-  for (const [x, y] of rd.cells) ctx.strokeRect(g.ox + (x + rx - g.b.x0) * g.sc + 3, g.oy + (y + ry - g.b.y0) * g.sc + 3, g.sc - 6, g.sc - 6);
-}
 document.addEventListener('click', e => {
-  const cv = e.target.closest && e.target.closest('.cat canvas'); if (!cv) return;
-  const el = cv.closest('.cat'), c = S.cats[+el.dataset.i], info = catInfo(cleanRle(c.rle).rle); if (!info.n) return;
+  const ed = e.target.closest && e.target.closest('canvas.celled-cv');
+  if (ed) { const h = editorCell(ed, e); if (h) toggleCatCell(h.c, +ed.dataset.i, h.x, h.y); return; }
+  // the small thumbnail: same toggle, for cells on or next to the catalyst
+  const cv = e.target.closest && e.target.closest('.cat > canvas'); if (!cv) return;
+  const el = cv.closest('.cat'), i = +el.dataset.i, c = S.cats[i], info = catInfo(cleanRle(c.rle).rle); if (!info.n) return;
   const g = thumbGeom(cv, info.cells), r = cv.getBoundingClientRect();
   const x = Math.floor(((e.clientX - r.left) * cv.width / r.width - g.ox) / g.sc) + g.b.x0, y = Math.floor(((e.clientY - r.top) * cv.height / r.height - g.oy) / g.sc) + g.b.y0;
   if (x < g.b.x0 - 1 || y < g.b.y0 - 1 || x > g.b.x1 + 1 || y > g.b.y1 + 1) return;
-  let L = locusCells(c); const k = L.findIndex(p => p[0] === x && p[1] === y);
-  if (k >= 0) L.splice(k, 1); else L.push([x, y]);
-  if (!L.length) c.locus = {rle: '', x: '0', y: '0'};
-  else { const bb = bbox(L); c.locus = {rle: encodeRle(L.map(([a, b2]) => [a - bb.x0, b2 - bb.y0])), x: String(bb.x0), y: String(bb.y0)}; }
-  renderCats(); update();
+  toggleCatCell(c, i, x, y);
+});
+document.addEventListener('pointermove', e => {
+  const ed = e.target.closest && e.target.closest('canvas.celled-cv'); if (!ed) return;
+  const out = $(`.celled-xy[data-i="${ed.dataset.i}"]`), h = editorCell(ed, e);
+  if (out) out.textContent = h ? describeCell(h) : 'Point at a cell to see its coordinates.';
 });
 
+// What is under the pointer on the map, in torus coordinates (the ones every x, y in the file uses).
+function mapReadout([x, y]) {
+  const out = $('#mapXY'); if (!out) return;
+  const k = x + ',' + y, what = [];
+  if (patCellsAbs().some(([a, b]) => wrapT(a) === x && wrapT(b) === y)) what.push('active pattern');
+  for (const bt of S.baits) { const d = decodeRle(cleanRle(bt.rle).rle), bx = parseInt(bt.x, 10) || 0, by = parseInt(bt.y, 10) || 0; if (d.cells.some(([a, b]) => wrapT(a + bx) === x && wrapT(b + by) === y)) { what.push('bait'); break; } }
+  const rects = S.areas.map(r => ({mode: r.mode, v: [r.x, r.y, r.w, r.h].map(t => parseInt(t, 10))})).filter(r => r.v.every(Number.isFinite) && r.v[2] > 0 && r.v[3] > 0);
+  const inR = r => x >= r.v[0] && x < r.v[0] + r.v[2] && y >= r.v[1] && y < r.v[1] + r.v[3], inc = rects.filter(r => r.mode !== 'exclude');
+  if ((inc.length ? inc.some(inR) : (x >= -30 && x < 30 && y >= -30 && y < 30)) && !rects.some(r => r.mode === 'exclude' && inR(r))) what.push('catalyst centres allowed');
+  out.textContent = 'x ' + x + ', y ' + y + (what.length ? ' · ' + what.join(', ') : '');
+}
 // Drag on the map to add a search rectangle (hold Shift to exclude).
 (() => {
   const cv = document.getElementById('map'); let st = null;
@@ -1565,7 +1714,8 @@ document.addEventListener('click', e => {
   cv.style.cursor = 'crosshair'; cv.style.touchAction = 'none';
   cv.addEventListener('pointerdown', e => { st = {a: cell(e), ex: e.shiftKey}; cv.setPointerCapture(e.pointerId); });
   cv.addEventListener('pointermove', e => {
-    if (!st) return; drawMap(); const b = cell(e), T = TOR(), s = cv.width / T, ctx = cv.getContext('2d');
+    if (!st) { mapReadout(cell(e)); return; }
+    drawMap(); const b = cell(e), T = TOR(), s = cv.width / T, ctx = cv.getContext('2d');
     ctx.strokeStyle = cssVar(st.ex ? '--err' : '--accent'); ctx.lineWidth = 2;
     ctx.strokeRect((Math.min(st.a[0], b[0]) + T / 2) * s, (Math.min(st.a[1], b[1]) + T / 2) * s, (Math.abs(b[0] - st.a[0]) + 1) * s, (Math.abs(b[1] - st.a[1]) + 1) * s);
   });
@@ -1775,6 +1925,16 @@ function pasteCatalysts() {
 /* ---------- loading ---------- */
 function loadState(st, opts = {}) {
   S = Object.assign(defaultState(), st);
+  // Older drafts: imported cat lines (explicit dx, dy) kept the file's coordinates; cells
+  // clicked on the thumbnail were already relative to the top-left. Convert the former.
+  for (const c of S.cats) if (!c.rel) {
+    if (!c.autoOff) {
+      const ox = parseInt(c.dx, 10) || 0, oy = parseInt(c.dy, 10) || 0;
+      const mv = o => o && tr(o.rle) ? {...o, x: String((parseInt(o.x, 10) || 0) - ox), y: String((parseInt(o.y, 10) || 0) - oy)} : o;
+      c.forbidden = (c.forbidden || []).map(mv); c.req = mv(c.req); c.anti = mv(c.anti); c.locus = mv(c.locus);
+    }
+    c.rel = true;
+  }
   split = {objs: [], setups: [], pick: 0};
   catCache = new Map();
   $('#exampleNote').hidden = !opts.example;
@@ -1851,6 +2011,8 @@ document.addEventListener('click', async e => {
     case 'setPeriod': { const info = catInfo(cleanRle(S.cats[i].rle).rle); S.cats[i].period = String(info.cls.period); S.cats[i].isBlinker = true; renderCats(); break; }
     case 'fixAll': S.cats.forEach(c => { c.sym = 'auto'; }); renderCats(); break;
     case 'fixMissing': S.cats.forEach(c => { if (+c.maxActive >= 50) c.maxActive = '20'; }); renderCats(); break;
+    case 'paintMode': paintMode.set(i, b.dataset.mode); renderCats(); break;
+    case 'clearCells': setSubCells(S.cats[i], b.dataset.mode, []); renderCats(); break;
     case 'addForbid': S.cats[i].forbidden.push({rle: '', x: '0', y: '0'}); renderCats(); break;
     case 'delForbid': S.cats[i].forbidden.splice(+b.dataset.j, 1); renderCats(); break;
     case 'delBait': S.baits.splice(i, 1); renderBaits(); break;

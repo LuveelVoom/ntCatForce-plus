@@ -124,6 +124,14 @@ details.more > .body { display: flex; flex-direction: column; gap: 12px; }
 .cat details.more > summary { font-size: 13px; }
 .sub-rows { display: flex; flex-direction: column; gap: 6px; }
 .subrow { display: grid; grid-template-columns: minmax(0, 1fr) 70px 70px auto; gap: 6px; align-items: start; }
+/* catalyst cell editor (locus / required / antirequired) */
+.celled { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+.cat canvas.celled-cv { width: 264px; height: 264px; max-width: 100%; cursor: pointer; }
+.celled-side { flex: 1 1 200px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.celled-xy { font-family: var(--f-mono); font-size: 13px; color: var(--muted); min-height: 2.6em; }
+button.seg i { display: inline-block; width: 10px; height: 10px; border: 2px solid; margin-right: 6px; vertical-align: -1px; }
+button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
+.map-xy { font-family: var(--f-mono); font-size: 13px; color: var(--muted); min-height: 1.4em; margin-top: 6px; }
 @media (max-width: 560px) {
   .cat, .obj { grid-template-columns: 48px minmax(0, 1fr); }
   .obj canvas, .cat canvas { width: 48px; height: 48px; }
@@ -368,6 +376,7 @@ details.more > .body { display: flex; flex-direction: column; gap: 12px; }
   <section class="panel">
     <h2>Map <span class="opt" id="mapSize">64 × 64 torus</span></h2>
     <canvas id="map" width="384" height="384" role="img" aria-label="Map of the starting pattern and the area where catalysts may be placed"></canvas>
+    <div id="mapXY" class="map-xy">Axes cross at (0, 0). x grows right, y grows down.</div>
     <div class="legend">
       <span><i style="background:var(--cell)"></i>active pattern</span>
       <span><i style="background:var(--ghost)"></i>symmetric copy</span>

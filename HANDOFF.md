@@ -171,6 +171,20 @@ Engine changes (not visible in the input format):
   full 5x5. Other rules unchanged (suite identical). Test `tests/b2n.in` (B2-a/S12, c/6 ship +
   domino / 3-cell line): 0 -> 10 solutions, the same 10 placements as a casim brute force.
 
+- 2026-11-18, from the user's draft guide (`README-new.md(3).md.md(1).md`, italic notes):
+  `cat <rle> <max-active> auto <sym>` (centre -floor(w/2), -floor(h/2); option x y then count
+  from the RLE top-left, like fixed-cat options); `any-phase` = new name of `isblinker` (both
+  accepted); `lightcone-tight` prints a deprecation warning; a second Ctrl-C quits only if it comes
+  >= 2 s after the first. Test `tests/auto.in` (locus with auto = explicit, 16; unshifted coords give 8).
+  Not done: deprecating `output-list` (the generator imports its lines into fixed-cat, and the
+  torus-edge mark is only written there).
+  Generator bug fixed: locus cells clicked on the thumbnail were written relative to the RLE top-left
+  while CatForce reads them relative to (dx, dy), so with the default auto-centre they were shifted.
+  The generator now stores forbidden/required/antirequired/locus relative to the RLE top-left
+  (`c.rel`), adds dx dy when writing and subtracts them on import; old drafts are migrated (explicit
+  dx dy: converted; auto: kept). New cell editor (locus / required / antirequired, origin marked +,
+  hover readout of both frames), checks for antirequired cells alive in any phase, map hover readout.
+
 ## 5. The generator (catforce_in_generator.html)
 
 Built from three pieces in `generator/src/`:
