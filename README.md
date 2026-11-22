@@ -1,3 +1,8 @@
+<p align="center">
+  <img src="ntcatforce.png" alt="ntCatForce+" width="100%"><br>
+  <sub>font by Aleph, second conduit from left by r2int, fourth conduit from left by AbhpzTa, second conduit from bottom by synperiplanar, all else by me</sub>
+</p>
+
 # ntCatForce+
 
 A modified **CatForce**, the catalyst/conduit search program for Conway's Game of Life by Michael Simkin,
