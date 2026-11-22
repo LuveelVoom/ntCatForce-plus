@@ -1,13 +1,11 @@
 <p align="center">
-  <img src="ntcatforce.png" alt="ntCatForce+" width="100%"><br>
+  <img src="ntcatforce-plus.png" alt="ntCatForce+" width="100%"><br>
   <sub>font by Aleph, second conduit from left by r2int, fourth conduit from left by AbhpzTa, second conduit from bottom by synperiplanar, all else by me</sub>
 </p>
 
 # ntCatForce+
 
-A modified **CatForce**, the catalyst/conduit search program for Conway's Game of Life by Michael Simkin,
-extended to isotropic non-totalistic (INT/Hensel) rules, other Life-like rules and Golly `MAP` rules.
-Original CatForce is Michael Simkin's work; this repo holds LuveelVoom's extended version.
+**CatForce** by Michael Simkin but modified to run on INT (and MAP) rules. The original CatForce was not multithreaded and was difficult to use for more complex tasks. Along with adding INT support, this version adds multithreading, some other speedups, a HTML page for editing infiles, mvr's symmetry support, and a few other useful tweaks. The vast vast majority of this project was coded with AI, so expect a lot of bugs and weirdly verbose output logs. Sorry.
 
 Main additions: per-rule compiled SIMD kernels, Apple-silicon support, bait objects, search/exclude areas,
 `also-required` cells, unique-outcome output, lightcone pruning, contact filter, pause/resume, and an
