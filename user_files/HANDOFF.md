@@ -1,6 +1,6 @@
 # ntCatForce+ — handoff for a new chat
 
-Start a new chat in this folder and say: "Read HANDOFF.md first, then continue."
+Start a new chat in this folder and say: "Read user_files/HANDOFF.md first, then continue."
 Everything needed to keep working is in this repo. Nothing depends on the old chat.
 
 ## 1. What this project is

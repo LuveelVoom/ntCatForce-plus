@@ -9,9 +9,7 @@
 
 Main additions: per-rule compiled SIMD kernels, Apple-silicon support, bait objects, search/exclude areas,
 `also-required` cells, catalyst groups with per-group caps (`group` / `group-max`), unique-outcome output,
-lightcone pruning, contact filter, pause/resume, and an
-in-browser `.in` file generator. Every input keyword is documented in [CatForce/README.md](CatForce/README.md);
-development notes and measurements are in [HANDOFF.md](HANDOFF.md).
+lightcone pruning, contact filter, pause/resume, and an in-browser `.in` file generator. Every input keyword is documented in [CatForce/README.md](CatForce/README.md).
 
 | Path | What it is |
 |---|---|
