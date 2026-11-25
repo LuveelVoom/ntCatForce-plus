@@ -55,7 +55,7 @@ Input File Format
 --
 See `examples/p83.in` etc. Some useful lists of catalysts are given in `catlists/`.
 
-Parameters are separated by `" "` - i.e. space. Parentheses below
+Parameters are separated by spaces. Parentheses below
 denote optional parameters.
 
 ### Table 1: Commands from standard CatForce
@@ -66,6 +66,7 @@ denote optional parameters.
 | `last-gen` | `n` | The max gen the _first_ encounter occurs |
 | `num-catalyst` | `n` or `m-n` | The number of catalysts to place (1 to 5), or a range: `1-3` reports every result with 1, 2 or 3 |
 | `num-transparent` | `n` | The number of catalysts marked `transparent` that may appear |
+| `group-max` | `name n` | At most `n` searched catalysts from group `name` per result (up to 8 groups; fixed-cats don't count). Every group named by a `cat` line needs one |
 | `stable-interval` | `n` | Gens the catalysts must survive after they catalyse to be considered stable |
 | `pat` | `rle` | The active pattern |
 | | `(dx dy)` | Offset applied to the active pattern |
@@ -84,6 +85,7 @@ denote optional parameters.
 | | `(period n)` | Periodic catalyst |
 | | `(any-phase)` | Accept the catalyst in any phase (any oscillator, not just blinkers). The old name `isblinker` still works |
 | | `(max-uses n)` | At most n copies of this catalyst per result |
+| | `(group name)` | Member of group `name` for `group-max`; may be repeated for several groups. Ignored on `fixed-cat` |
 | | `(zone rle x y)` | This catalyst must lie inside these cells (torus coordinates); may be repeated |
 | `symmetry` | `symmetrycode` | Symmetry of the entire pattern |
 | `search-area` | `x y w h` | Search area. Forms a union with other `search-area` rectangles |
@@ -233,9 +235,8 @@ respectively.
 **Setting the rule**: put a `rule` line anywhere in the `.in` file:
 
     rule B3/S23                       (Conway's Life - the default if omitted)
-    rule B2ei3aeikqr/S2-a3            (any Hensel isotropic non-totalistic rule)
+    rule B2ei3aeikqr/S2-a3
     rule MAPARYXfhZofugWaH7oaIDogBZofuhogOiAaIDogIAAgAAWaH7oaIDogGiA6ICAAIAAaIDogIAAgACAAIAAAAAAAA 
-    (any MAP non-isotropic rule)
 
 Accepted formats are Life-like/Hensel strings and Golly
 `MAP` strings [9]. Rules containing B0 are not
@@ -312,7 +313,7 @@ A standard (`.in`)  input file can also import an RLE with `layout file.rle [x y
 | 5 (yellow)| `fixed`: each object is a catalyst already in place | `fixed-cat ... 20` lines |
 | 6 (gray/killer cell)| `keep-empty`: these cells must stay dead in every generation | `keep-empty` |
 
-Every [island](https://conwaylife.com/wiki/Island) is read as a separate object.
+Every island is read as a separate object.
 
 ---
 The `.rle` file can also have other commands in addition to the RLE. `#C` lines before the RLE are read as commands, e.g. `#C max-gen 100`. Commands can also be added after the `!`. A `rule` line overrides the RLE's header.

@@ -27,6 +27,7 @@
 
 const int MAX_SEARCHED = 5;   // num-catalyst limit
 const int MAX_CATALYSTS = 8;  // searched + fixed-cat
+const int MAX_GROUPS = 8;     // cat option group / keyword group-max
 const int MAX_BAITS = 8;
 const unsigned kFilterMaxGen = 1999999999u; // filter range ending in "max", until max-gen is known
 
@@ -58,6 +59,8 @@ public:
   unsigned minCatalysts = 0;  // the fewest (0 = same as numCatalysts)
   std::string sortBy = "found"; // output order, see SortResults
   unsigned numTransparent;
+  // group-max <name> <n>: at most n searched catalysts from group <name> per result
+  std::vector<std::pair<std::string, unsigned>> groupMax;
   unsigned stableInterval;
   std::string pat;
   int xPat;
@@ -279,6 +282,7 @@ public:
   unsigned period;
   bool isBlinker;
   unsigned maxUses = 0;  // at most this many per result (0 = no limit)
+  std::vector<std::string> groups; // cat option group <name> (repeatable)
   std::vector<std::string> zoneRLE;            // this catalyst must lie inside these cells
   std::vector<std::pair<int, int>> zoneXY;
 
@@ -379,6 +383,11 @@ public:
       } else if (elems[argi] == "max-uses") {
         needTokens(1);
         maxUses = ParseIntOrDie(elems[argi + 1], "cat max-uses", 1);
+        argi += 2;
+      } else if (elems[argi] == "group") {
+        needTokens(1);
+        if (std::find(groups.begin(), groups.end(), elems[argi + 1]) == groups.end())
+          groups.push_back(elems[argi + 1]);
         argi += 2;
       } else if (elems[argi] == "zone") {
         needTokens(3);
@@ -649,7 +658,7 @@ std::vector<SymmetryTransform> CharToTransforms(char ch) {
 
 // Every keyword of the input format (anything else is warned about).
 static const char *const kKeywords[] = {
-    "rule", "include", "cat", "max-gen", "num-catalyst", "num-transparent", "stable-interval",
+    "rule", "include", "cat", "max-gen", "num-catalyst", "num-transparent", "group-max", "stable-interval",
     "pat", "search-area", "exclude-area", "start-gen", "last-gen", "output", "full-report",
     "filter", "andfilter", "orfilter", "match", "fit-in-width-height", "max-category-size",
     "symmetry", "also-required", "stop-after-cats-destroyed", "max-junk", "keep-duplicates",
@@ -1219,6 +1228,20 @@ void ReadParams(const std::string& fname, std::vector<CatalystInput> &catalysts,
     if (elems[0] == numTransp)
       params.numTransparent = ParseIntOrDie(elems[1], "num-transparent", 0);
 
+    if (elems[0] == "group-max") {
+      if (elems.size() < 3)
+        Die("group-max: format is group-max <name> <n>");
+      const unsigned n = ParseIntOrDie(elems[2], "group-max", 0);
+      bool found = false;
+      for (auto &g : params.groupMax)
+        if (g.first == elems[1]) { g.second = n; found = true; } // a later line overrides
+      if (!found) {
+        if (params.groupMax.size() >= (size_t)MAX_GROUPS)
+          Die("group-max: at most " + std::to_string(MAX_GROUPS) + " groups");
+        params.groupMax.emplace_back(elems[1], n);
+      }
+    }
+
     if (elems[0] == stable)
       params.stableInterval = ParseIntOrDie(elems[1], "stable-interval", 0);
 
@@ -1680,6 +1703,7 @@ public:
   int orient = 0;        // which orientation of that line
   bool fixed = false;    // a fixed-cat: already placed, never searched for
   unsigned maxUses = 0;  // cat option max-uses (0 = no limit)
+  uint8_t groupMask = 0; // bit k: member of params.groupMax[k] (set by the searcher)
   LifeState zone;        // cat option zone: must lie inside these cells (empty = anywhere)
 
   static std::vector<CatalystData> FromInput(CatalystInput &input);
@@ -1878,6 +1902,7 @@ struct Trajectory {
 struct Configuration {
   unsigned count;
   unsigned transparentCount;
+  std::array<uint8_t, MAX_GROUPS> groupCount{}; // searched catalysts placed per group-max group
   unsigned mustIncludeCount;
   std::array<int, MAX_CATALYSTS> curx;
   std::array<int, MAX_CATALYSTS> cury;
@@ -2598,6 +2623,8 @@ public:
   // fixed-cat entries: their index in `catalysts` and their position
   std::vector<unsigned> fixedIdx;
   std::vector<std::pair<int, int>> fixedPos;
+  std::array<unsigned, MAX_GROUPS> groupLimit{}; // group-max values, by group index
+  uint8_t groupCap1Mask = 0;                     // groups with group-max 1
   unsigned rootCount = 0;  // catalysts in place before the search starts (the fixed ones)
   unsigned totalCats = 0;  // rootCount + num-catalyst
   LifeState catalystZone, noCatalystZone, keepEmpty;
@@ -2626,8 +2653,13 @@ public:
     // (only the exact pair-skipping conditions used in LoadMasks matter, not num-catalyst itself)
     ss << RuleTableKey() << (N == 64 ? "" : "|torus" + std::to_string(N)) << "|fixed" << fixedIdx.size() << "|skipMust" << (params.numCatalysts == 2 && hasMustInclude)
        << "|skipTransp" << (params.numTransparent == 1);
-    for (auto &cat : catalysts)
+    if (groupCap1Mask)
+      ss << "|skipGroup";
+    for (auto &cat : catalysts) {
       ss << "|" << StateKey(cat.state) << "," << cat.period << "," << cat.mustInclude << "," << cat.transparent << "," << cat.fixed;
+      if (groupCap1Mask)
+        ss << "," << (int)(cat.groupMask & groupCap1Mask);
+    }
     return Fnv1a(ss.str());
   }
 
@@ -2672,6 +2704,10 @@ public:
           if (params.numTransparent == 1 && catalysts[s].transparent &&
               catalysts[t].transparent)
             continue;
+
+          // both in a group capped at 1: never placed together
+          if (catalysts[s].groupMask & catalysts[t].groupMask & groupCap1Mask)
+            continue;
         }
 
         catalystCollisionMasks[s * catalysts.size() + t] = LoadCollisionMask(catalysts[s], catalysts[t]);
@@ -2696,11 +2732,32 @@ public:
     ReadParams(inputFile, inputcats, params);
     params.inputFile = inputFile;
 
+    std::vector<bool> groupUsed(params.groupMax.size(), false);
+    for (size_t k = 0; k < params.groupMax.size(); k++) {
+      groupLimit[k] = params.groupMax[k].second;
+      if (params.groupMax[k].second == 1)
+        groupCap1Mask |= (uint8_t)(1u << k);
+    }
     for (auto &input : inputcats) {
       inputNames.push_back(input.rle);
       std::vector<CatalystData> newcats = CatalystData::FromInput(input);
+      uint8_t mask = 0;
+      for (const auto &name : input.groups) {
+        size_t k = 0;
+        while (k < params.groupMax.size() && params.groupMax[k].first != name)
+          k++;
+        if (k == params.groupMax.size())
+          Die("cat " + input.rle + ": group " + name + " has no group-max line");
+        mask |= (uint8_t)(1u << k);
+        groupUsed[k] = true;
+      }
+      for (auto &c : newcats)
+        c.groupMask = mask;
       catalysts.insert(catalysts.end(), newcats.begin(), newcats.end());
     }
+    for (size_t k = 0; k < params.groupMax.size(); k++)
+      if (!groupUsed[k])
+        std::cout << "Warning: group-max " << params.groupMax[k].first << ": no cat line is in this group" << std::endl;
     // fixed-cat: one entry each (phase 0, as drawn), placed by Search()
     for (const auto &f : params.fixedCats) {
       std::vector<std::string> rest = splitwhitespace(f.rest);
@@ -3756,6 +3813,20 @@ public:
               << "  output:        " << params.outputFile
               << (params.fullReportFile.empty() ? "" : ", " + params.fullReportFile + " (full report)")
               << (params.outputList.empty() ? "" : ", " + params.outputList + " (list)") << std::endl;
+    if (!params.groupMax.empty()) {
+      std::cout << "  groups:       ";
+      for (size_t k = 0; k < params.groupMax.size(); k++) {
+        unsigned lines = 0;
+        int last = -1; // catalysts are stored in cat-line order
+        for (const auto &c : catalysts)
+          if ((c.groupMask >> k & 1) && c.inputIndex != last) {
+            lines++;
+            last = c.inputIndex;
+          }
+        std::cout << " " << params.groupMax[k].first << " (" << lines << " cat line(s), max " << params.groupMax[k].second << ")";
+      }
+      std::cout << std::endl;
+    }
     if (params.uniqueRecovery)
       std::cout << "  unique-recovery: on (one placement per identical perturbation; may lose results)" << std::endl;
     if (params.oscMax > 0)
@@ -3981,6 +4052,14 @@ public:
             }
             if (config.transparentCount == params.numTransparent && catalysts[s].transparent)
               continue;
+            if (catalysts[s].groupMask) {
+              bool full = false;
+              for (unsigned k = 0; k < (unsigned)MAX_GROUPS; k++)
+                if ((catalysts[s].groupMask >> k & 1) && config.groupCount[k] >= groupLimit[k])
+                  full = true;
+              if (full)
+                continue;
+            }
             if (config.count == totalCats - 1 && config.mustIncludeCount == 0 && !catalysts[s].mustInclude)
               continue;
             if ((int)g > latestPlacementGen[s])
@@ -4052,6 +4131,8 @@ public:
               newConfig.curs[config.count] = s;
               if (catalysts[s].transparent)
                 newConfig.transparentCount++;
+              for (unsigned k = 0; k < (unsigned)MAX_GROUPS; k++)
+                newConfig.groupCount[k] += catalysts[s].groupMask >> k & 1;
               if (catalysts[s].mustInclude)
                 newConfig.mustIncludeCount++;
 

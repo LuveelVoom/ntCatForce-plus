@@ -185,6 +185,14 @@ Engine changes (not visible in the input format):
   dx dy: converted; auto: kept). New cell editor (locus / required / antirequired, origin marked +,
   hover readout of both frames), checks for antirequired cells alive in any phase, map hover readout.
 
+- 2026-11-25, catalyst groups: cat option `group <name>` (repeatable) and keyword
+  `group-max <name> <n>`, a cap on searched catalysts per group, like `num-transparent` but for
+  any number of named groups (up to 8). Fixed-cats don't count (like transparent and max-uses).
+  Groups capped at 1 skip their member pairs' collision masks (in the mask-cache key).
+  Checked single-threaded on conway and intb: `group-max r 1` gives the same list as
+  `transparent` + `num-transparent 1`, and group-max 0/1/2 and two groups equal the ungrouped list
+  filtered by hand. Test `tests/group.in` (4252). Generator not updated (use "Extra lines").
+
 ## 5. The generator (catforce_in_generator.html)
 
 Built from three pieces in `generator/src/`:
