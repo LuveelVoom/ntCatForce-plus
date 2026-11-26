@@ -66,7 +66,11 @@ denote optional parameters.
 | `last-gen` | `n` | The max gen the _first_ encounter occurs |
 | `num-catalyst` | `n` or `m-n` | The number of catalysts to place (1 to 5), or a range: `1-3` reports every result with 1, 2 or 3 |
 | `num-transparent` | `n` | The number of catalysts marked `transparent` that may appear |
-| `group-max` | `name n` | At most `n` searched catalysts from group `name` per result (up to 8 groups; fixed-cats don't count). Every group named by a `cat` line needs one |
+| `group-max` | `name n` | At most `n` searched catalysts from group `name` per result (up to 8 groups; fixed-cats don't count) |
+| `group-min` | `name n` | At least `n` searched catalysts from group `name` per result |
+| `group-lines` | `name n` | Catalysts from at most `n` different `cat` lines of group `name` (copies of one line count once) |
+| `group-zone` | `name rle x y` | Every catalyst of group `name` must lie inside these cells (torus coordinates); repeated lines add up. A catalyst in several groups must satisfy each group's zone, and its own `zone` |
+| | | Every group named by a `cat` line needs at least one `group-*` line |
 | `stable-interval` | `n` | Gens the catalysts must survive after they catalyse to be considered stable |
 | `pat` | `rle` | The active pattern |
 | | `(dx dy)` | Offset applied to the active pattern |

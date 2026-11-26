@@ -197,6 +197,18 @@ Engine changes (not visible in the input format):
   (writes `group-max`; missing limit or >8 groups is an error). Import reads both. Checked in
   jsdom: group.in imported and re-exported runs to the same 4252-result list single-threaded.
 
+- 2026-11-25, more group keywords: `group-min name n` (results need >= n; a placement is skipped when
+  a group's shortfall exceeds the catalysts still to place, and success requires every minimum),
+  `group-lines name n` (at most n different cat lines), `group-zone name rle x y` (members must lie in
+  the union of the group's zones; applied like cat `zone`, per group). Any group-* line declares a
+  group. Checked single-threaded against the ungrouped list filtered in Python: conway, intb, sym
+  (D2|), 2-cat and 3-cat (intb 3 lines, max-gen 20: group-min 2/3 and with num-catalyst 1-3), and
+  group-zone == the same zone as a per-cat `zone`. Test `tests/group2.in` (4256).
+  With find-oscillators, only arrangements that can still meet every group-min are searched (like
+  mustinclude). Group-lines 1 does not skip collision masks (only group-max 1 does).
+  Generator: Catalyst groups panel has at most / at least / different lines / zones per group;
+  drafts with the old `groupMax` map are converted on load.
+
 ## 5. The generator (catforce_in_generator.html)
 
 Built from three pieces in `generator/src/`:
@@ -220,6 +232,21 @@ unique-output, resume-from, split-level, fixed catalysts (+ import from an outpu
 result RLE), layout import/export, and an "Extra lines" box for keywords without a field.
 `build.py` writes `generator/catforce_in_generator.html` and the copy in `CatForce/`.
 Page logic can be tested headless with jsdom (stub canvas getContext and clipboard).
+
+2026-11-25, generator layout regrouped by topic, with a sticky row of jump links (current section
+highlighted): 1 Rule and board (rule, symmetry, torus, torus-edge), 2 Starting pattern (also-required
+moved into its hand-edit panel), 3 Catalysts (num-catalyst, num-transparent and group limits now here),
+4 Where catalysts go (areas, fit-in-width-height, spaceship-cutoff), 5 Generations (max-gen,
+stable-interval, start/last-gen), 6 Results (goals, max-junk, stop-after, keep-dup/interacting,
+find-oscillators), 7 Output files, 8 Running (threads, limits, part, resume, speed options),
+9 Other lines. The "More limits" fold-out is gone. Field lists in c_ui.js are one array per container
+(GEN_FIELDS, CAT_COUNT_FIELDS, ...); messages name sections instead of step numbers.
+A fresh page now starts blank: rule, max-gen, num-catalyst, stable-interval and output are empty
+(CatForce defaults shown as placeholders; the page simulates an empty rule as B3/S23). Cat and
+fixed-cat max-active stay prefilled with 20 (required, CatForce has no default). The Herschel
+example is only behind "Load example", which asks first unless the form is empty.
+Checked in jsdom against the previous page: all 13 tests/*.in import to identical text; the example
+is identical. Not checked visually (no browser here).
 
 ## 6. Where things stood at the end
 

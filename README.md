@@ -8,7 +8,7 @@
 **CatForce** by Michael Simkin but modified to run on INT (and MAP) rules. The original CatForce was not multithreaded and was difficult to use for more complex tasks. Along with adding INT support, this version adds multithreading, some other speedups, a HTML page for editing infiles, mvr's symmetry support, and a few other useful tweaks. The vast vast majority of this project was coded with AI, so expect a lot of bugs and weirdly verbose output logs. Sorry.
 
 Main additions: per-rule compiled SIMD kernels, Apple-silicon support, bait objects, search/exclude areas,
-`also-required` cells, catalyst groups with per-group caps (`group` / `group-max`), unique-outcome output,
+`also-required` cells, catalyst groups (at most / at least n per result, distinct lines, zones), unique-outcome output,
 lightcone pruning, contact filter, pause/resume, and an in-browser `.in` file generator. Every input keyword is documented in [CatForce/README.md](CatForce/README.md).
 
 | Path | What it is |

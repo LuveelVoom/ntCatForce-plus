@@ -11,3 +11,4 @@ layout                        1.2s results: 5/12                  8196a4fac3
 b2n                           0.0s results: 1/10                  3dd19d5a19
 auto                          0.1s results: 5/16                  c22a9e7453
 group                         0.1s results: 231/4252              c26870d962
+group2                        0.3s results: 213/4256              63a6661bff

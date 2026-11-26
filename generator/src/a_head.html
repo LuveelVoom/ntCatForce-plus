@@ -59,6 +59,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; m
 .steps { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
 .step { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.step { scroll-margin-top: 52px; }
+.jump { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 2px 4px; padding: 8px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+.jump a { color: var(--muted); text-decoration: none; font-size: 13.5px; padding: 2px 8px; border: 1px solid transparent; }
+.jump a:hover, .jump a.on { color: var(--ink); border-color: var(--accent); }
 .step > header { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
 .num { width: 28px; height: 28px; background: var(--cell); color: var(--surface); font: 700 14px/28px var(--f-mono); text-align: center; border-radius: 3px; }
 .step > header p { color: var(--muted); font-size: 14px; margin-top: 2px; max-width: 70ch; }
@@ -175,7 +179,7 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
 <header class="top">
   <div>
     <h1>CatForce <span class="ext">.in</span> generator</h1>
-    <p>Build a search file in six steps. The file on the right updates as you type; copy or save it, then run <code>./CatForce search.txt</code>.</p>
+    <p>Build a search file. The file on the right updates as you type; copy or save it, then run <code>./CatForce search.txt</code>.</p>
   </div>
   <div class="btnrow">
     <button id="btnOpen">Open a .in file</button>
@@ -188,6 +192,11 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
   <span>Clear every field and start from an empty search?</span>
   <button id="resetYes" class="danger small">Clear everything</button>
   <button id="resetNo" class="small">Keep my work</button>
+</div>
+<div id="exampleConfirm" class="notice" hidden>
+  <span>Replace your current search with the example?</span>
+  <button id="exampleYes" class="danger small">Load the example</button>
+  <button id="exampleNo" class="small">Keep my work</button>
 </div>
 <div id="exampleNote" class="notice example" hidden>
   <span>This is an example: a search for Herschel conduits in Conway's Life. Change anything, or press <b>Start over</b> for a blank search.</span>
@@ -208,9 +217,13 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
 <main class="layout">
 <div class="steps">
 
-  <!-- 1. Rule -->
+  <nav class="jump" aria-label="Sections">
+    <a href="#s-rule">Rule</a><a href="#s-pattern">Pattern</a><a href="#s-cats">Catalysts</a><a href="#s-where">Where</a><a href="#s-gens">Generations</a><a href="#s-goal">Results</a><a href="#s-output">Output</a><a href="#s-run">Running</a><a href="#s-other">Other</a>
+  </nav>
+
+  <!-- 1. Rule and board -->
   <section class="step" id="s-rule">
-    <header><span class="num">1</span><div><h2>Rule</h2><p>Any Life-like or isotropic non-totalistic (Hensel) rule, or a Golly <code>MAP</code> string. Pasting a Golly pattern in step 2 fills this in from its header.</p></div></header>
+    <header><span class="num">1</span><div><h2>Rule and board</h2><p>Any Life-like or isotropic non-totalistic (Hensel) rule, or a Golly <code>MAP</code> string. Pasting a Golly pattern in Starting pattern fills this in from its header.</p></div></header>
     <label class="fld"><span class="lbl">Rulestring <code>rule</code></span>
       <input type="text" id="f-rule" data-k="rule" spellcheck="false" autocomplete="off" placeholder="B3/S23">
     </label>
@@ -220,6 +233,28 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
       <button class="chip" data-rule="B36/S23">HighLife</button>
       <button class="chip" data-rule="B3ainj4cw5cek6n/S2-in3-ky4enyjtw5injr6cen7c">Cyclotronic</button>
     </div>
+    <div class="fields">
+      <label class="fld"><span class="lbl">Symmetry <code>symmetry</code></span>
+        <select id="f-sym" data-k="sym"></select>
+        <small>Searches only symmetric arrangements: every catalyst is copied by the same symmetry, and so is the pattern. Paste only one half of a symmetric pattern.</small>
+      </label>
+      <label class="fld"><span class="lbl">Torus size <code>torus</code></span>
+        <select id="f-torus" data-k="torus" data-re="all">
+          <option value="64">64 × 64 (default, fastest)</option>
+          <option value="128">128 × 128 (room for big areas; about 2.5–3.5× slower)</option>
+        </select>
+        <small>CatForce runs its 128 version itself (built on first use).</small>
+      </label>
+      <label class="fld"><span class="lbl">Results that reach the torus edge <code>torus-edge</code></span>
+        <select id="f-torusEdge" data-k="torusEdge">
+          <option value="flag">Keep, marked in the output list (default)</option>
+          <option value="drop">Drop them</option>
+          <option value="off">Don't check</option>
+        </select>
+        <small>Such a reaction may wrap around the torus.</small>
+      </label>
+    </div>
+    <div id="symMsg" class="msg"></div>
   </section>
 
   <!-- 2. Starting pattern -->
@@ -230,13 +265,8 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
     <div id="objs" class="list"></div>
     <div id="setups" class="list"></div>
     <div id="patSummary" class="summary"></div>
-    <label class="fld"><span class="lbl">Symmetry <code>symmetry</code></span>
-      <select id="f-sym" data-k="sym"></select>
-      <small>Searches only symmetric arrangements: every catalyst is copied by the same symmetry, and so is the pattern. Paste only one half of a symmetric pattern.</small>
-    </label>
-    <div id="symMsg" class="msg"></div>
     <details class="more" id="patMore">
-      <summary>Edit the pattern and baits by hand</summary>
+      <summary>Edit the pattern, baits and always-present cells by hand</summary>
       <div class="body">
         <div class="inline">
           <label class="fld grow"><span class="lbl">Active pattern <code>pat</code></span>
@@ -244,10 +274,16 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
           <label class="fld"><span class="lbl">x</span><input type="text" id="f-patDx" data-k="patDx" inputmode="numeric" placeholder="0"></label>
           <label class="fld"><span class="lbl">y</span><input type="text" id="f-patDy" data-k="patDy" inputmode="numeric" placeholder="0"></label>
         </div>
-        <small class="hint">x, y is the top-left corner on the torus (64×64 unless set in step 5): (0,0) is the centre, x grows to the right, y grows downwards.</small>
+        <small class="hint">x, y is the top-left corner on the torus (see Rule and board for its size): (0,0) is the centre, x grows to the right, y grows downwards.</small>
         <h3>Baits <span class="opt">must be disturbed, then reappear intact and survive</span></h3>
         <div id="baits" class="list"></div>
         <div class="btnrow"><button id="addBait" class="small">Add a bait</button></div>
+        <div class="inline">
+          <label class="fld grow"><span class="lbl">Always present <code>also-required</code></span>
+            <textarea id="f-alsoRle" data-k="alsoRle" data-rle="1" rows="2" spellcheck="false" placeholder="cells that must be alive in every generation"></textarea></label>
+          <label class="fld"><span class="lbl">x</span><input type="text" id="f-alsoX" data-k="alsoX" inputmode="numeric" placeholder="0"></label>
+          <label class="fld"><span class="lbl">y</span><input type="text" id="f-alsoY" data-k="alsoY" inputmode="numeric" placeholder="0"></label>
+        </div>
       </div>
     </details>
   </section>
@@ -255,6 +291,7 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
   <!-- 3. Catalysts -->
   <section class="step" id="s-cats">
     <header><span class="num">3</span><div><h2>Catalysts</h2><p>Objects CatForce may place around the pattern. Each one is checked in your rule: a catalyst that is not a still life or an oscillator can never recover, so it is flagged.</p></div></header>
+    <div class="fields" id="catCountFields"></div>
     <div>
       <h3 style="margin-bottom:6px">Common catalysts <span class="opt">click to add</span></h3>
       <div id="lib" class="chips"></div>
@@ -266,6 +303,7 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
     <div class="btnrow"><button id="catPasteGo">Add pasted catalysts</button><span id="catPasteMsg" class="msg"></span></div>
     <div id="orientFix" class="callout tip" hidden></div>
     <div id="cats" class="list"></div>
+    <div id="groupLimits"></div>
     <div>
       <h3 style="margin-bottom:4px">Already placed <span class="opt"><code>fixed-cat</code>: catalysts kept from an earlier result. They must recover like the others, and the search adds "Catalysts per result" more.</span></h3>
     </div>
@@ -278,91 +316,81 @@ button.seg.on { border-color: var(--accent); background: var(--accent-soft); }
     <div class="btnrow"><button id="resultGo">Use its catalysts as fixed</button><span id="resultMsg" class="msg"></span></div>
   </section>
 
-  <!-- 4. Goal -->
-  <section class="step" id="s-goal">
-    <header><span class="num">4</span><div><h2>What counts as a result</h2><p>Without a goal, every arrangement whose catalysts recover is reported, including ones where the reaction simply dies. Describe what the reaction should produce.</p></div></header>
-    <div id="goals" class="list"></div>
-    <div class="btnrow">
-      <button id="addMatch" class="small">An object appears anywhere</button>
-      <button id="addAnd" class="small">A pattern is at an exact spot</button>
-      <button id="addOr" class="small">One of several exact spots</button>
-    </div>
-    <div class="inline">
-      <label class="fld"><span class="lbl">Allow extra cells <code>max-junk</code></span>
-        <input type="text" id="f-maxJunk" data-k="maxJunk" inputmode="numeric" placeholder="any number">
-        <small>Other live cells (not catalysts) allowed while a goal matches. 0 = clean output only.</small></label>
-    </div>
-    <small class="hint">To require an object to be rebuilt, make it a bait in step 2 instead.</small>
-  </section>
-
-  <!-- 5. Search size -->
-  <section class="step" id="s-size">
-    <header><span class="num">5</span><div><h2>Search size</h2><p>These decide how long the search takes. Empty boxes use CatForce's defaults, shown in grey.</p></div></header>
-    <div class="fields" id="sizeFields"></div>
-    <label class="fld"><span class="lbl">Torus size <code>torus</code></span>
-      <select id="f-torus" data-k="torus" data-re="all">
-        <option value="64">64 × 64 (default, fastest)</option>
-        <option value="128">128 × 128 (room for big areas; about 2.5–3.5× slower)</option>
-      </select>
-      <small>The board wraps around at its edges. CatForce runs its 128 version itself (built on first use).</small>
-    </label>
-    <div>
-      <h3 style="margin-bottom:4px">Where catalysts may go <span class="opt"><code>search-area</code> / <code>exclude-area</code></span></h3>
-      <small class="hint">Rectangles x y width height on the torus (shaded on the map). Drag on the map to add one; hold Shift while dragging to exclude. Allowed = all included rectangles minus all excluded ones.</small>
-    </div>
+  <!-- 4. Where catalysts go -->
+  <section class="step" id="s-where">
+    <header><span class="num">4</span><div><h2>Where catalysts go</h2><p>Rectangles x y width height on the torus (shaded on the map). Drag on the map to add one; hold Shift while dragging to exclude. Allowed = all included rectangles minus all excluded ones.</p></div></header>
     <div id="areas" class="list"></div>
     <div class="btnrow">
-      <button id="addArea" class="small">Include a rectangle</button>
-      <button id="addExclude" class="small">Exclude a rectangle</button>
+      <button id="addArea" class="small">Include a rectangle <code>search-area</code></button>
+      <button id="addExclude" class="small">Exclude a rectangle <code>exclude-area</code></button>
       <span class="opt">Leave out a quarter:</span>
       <button class="small" data-quad="tl">top-left</button>
       <button class="small" data-quad="tr">top-right</button>
       <button class="small" data-quad="bl">bottom-left</button>
       <button class="small" data-quad="br">bottom-right</button>
     </div>
-    <details class="more">
-      <summary>More limits</summary>
-      <div class="body">
-        <div class="fields" id="limitFields"></div>
-        <div class="inline">
-          <label class="fld"><span class="lbl">Fit in width <code>fit-in-width-height</code></span><input type="text" id="f-fitW" data-k="fitW" inputmode="numeric" placeholder="no limit"></label>
-          <label class="fld"><span class="lbl">and height</span><input type="text" id="f-fitH" data-k="fitH" inputmode="numeric" placeholder="no limit"></label>
-        </div>
-        <small class="hint">Only keep results whose catalysts all fit in a rectangle this size.</small>
-        <div class="inline">
-          <label class="fld grow"><span class="lbl">Always present <code>also-required</code></span>
-            <textarea id="f-alsoRle" data-k="alsoRle" data-rle="1" rows="2" spellcheck="false" placeholder="cells that must be alive in every generation"></textarea></label>
-          <label class="fld"><span class="lbl">x</span><input type="text" id="f-alsoX" data-k="alsoX" inputmode="numeric" placeholder="0"></label>
-          <label class="fld"><span class="lbl">y</span><input type="text" id="f-alsoY" data-k="alsoY" inputmode="numeric" placeholder="0"></label>
-        </div>
-      </div>
-    </details>
+    <div class="fields">
+      <label class="fld"><span class="lbl">Fit in width <code>fit-in-width-height</code></span><input type="text" id="f-fitW" data-k="fitW" inputmode="numeric" placeholder="no limit"></label>
+      <label class="fld"><span class="lbl">and height</span><input type="text" id="f-fitH" data-k="fitH" inputmode="numeric" placeholder="no limit"><small>Only keep results whose catalysts all fit in a rectangle this size.</small></label>
+      <div id="whereFields" style="display:contents"></div>
+    </div>
   </section>
 
-  <!-- 6. Run & output -->
-  <section class="step" id="s-run">
-    <header><span class="num">6</span><div><h2>Running and output</h2><p>File names, stopping conditions and how the search uses your computer.</p></div></header>
-    <div class="fields" id="runFields"></div>
+  <!-- 5. Generations -->
+  <section class="step" id="s-gens">
+    <header><span class="num">5</span><div><h2>Generations</h2><p>How long each candidate is run, and when catalysts may first be touched. Empty boxes use CatForce's defaults, shown in grey.</p></div></header>
+    <div class="fields" id="genFields"></div>
+  </section>
+
+  <!-- 6. Results -->
+  <section class="step" id="s-goal">
+    <header><span class="num">6</span><div><h2>What counts as a result</h2><p>Without a goal, every arrangement whose catalysts recover is reported, including ones where the reaction simply dies. Describe what the reaction should produce.</p></div></header>
+    <div id="goals" class="list"></div>
+    <div class="btnrow">
+      <button id="addMatch" class="small">An object appears anywhere</button>
+      <button id="addAnd" class="small">A pattern is at an exact spot</button>
+      <button id="addOr" class="small">One of several exact spots</button>
+    </div>
+    <small class="hint">To require an object to be rebuilt, make it a bait in Starting pattern instead.</small>
+    <div class="fields">
+      <label class="fld"><span class="lbl">Allow extra cells <code>max-junk</code></span>
+        <input type="text" id="f-maxJunk" data-k="maxJunk" inputmode="numeric" placeholder="any number">
+        <small>Other live cells (not catalysts) allowed while a goal matches. 0 = clean output only.</small></label>
+      <div id="resultFields" style="display:contents"></div>
+    </div>
     <div class="checks">
       <label class="check"><input type="checkbox" id="f-keepDup" data-k="keepDup"><span>Keep duplicate results <code>keep-duplicates</code><small>By default, results that are mirror images or rotations of each other are kept once.</small></span></label>
       <label class="check"><input type="checkbox" id="f-keepInteract" data-k="keepInteract"><span>Keep results whose catalysts touch each other <code>keep-interacting</code><small>Off by default: such results are usually two catalysts fused into one object.</small></span></label>
+      <label class="check"><input type="checkbox" id="f-findOsc" data-k="findOsc"><span>Also collect oscillators <code>find-oscillators</code><small>Reactions that settle into an oscillator (periods 3-60) holding a catalyst go to <code>&lt;output&gt;_osc.rle</code>. For another period range, write e.g. <code>find-oscillators 3-20</code> in Other lines.</small></span></label>
+    </div>
+  </section>
+
+  <!-- 7. Output files -->
+  <section class="step" id="s-output">
+    <header><span class="num">7</span><div><h2>Output files</h2><p>File names and how results are laid out.</p></div></header>
+    <div class="fields" id="outputFields"></div>
+    <div class="checks">
       <label class="check"><input type="checkbox" id="f-verbose" data-k="verbose"><span>Print every first-catalyst placement <code>verbose</code><small>The old, very long console output.</small></span></label>
+    </div>
+  </section>
+
+  <!-- 8. Running -->
+  <section class="step" id="s-run">
+    <header><span class="num">8</span><div><h2>Running</h2><p>Stopping conditions, threads, and ways to make the search faster.</p></div></header>
+    <div class="fields" id="runFields"></div>
+    <div class="checks">
       <label class="check"><input type="checkbox" id="f-contactFilter" data-k="contactFilter"><span>Contact filter <code>contact-filter</code><small>Skip a catalyst that never comes back on its own within "may be missing for". Much faster; can lose results where a later catalyst rescues an earlier one.</small></span></label>
       <label class="check"><input type="checkbox" id="f-uniqueRecovery" data-k="uniqueRecovery"><span>Skip repeated disturbances <code>unique-recovery</code><small>Of catalyst placements that change the reaction in exactly the same way until the catalyst is back, search only the first. Much faster with 3 or more catalysts; can lose results.</small></span></label>
-      <label class="check"><input type="checkbox" id="f-findOsc" data-k="findOsc"><span>Also collect oscillators <code>find-oscillators</code><small>Reactions that settle into an oscillator (periods 3-60) holding a catalyst go to <code>&lt;output&gt;_osc.rle</code>. For another period range, write e.g. <code>find-oscillators 3-20</code> in Extra lines.</small></span></label>
       <label class="check"><input type="checkbox" id="f-lightconeOff" data-k="lightconeOff"><span>Turn off lightcone pruning <code>lightcone no</code><small>On by default; it mainly helps with 3 or more catalysts.</small></span></label>
     </div>
-    <label class="fld"><span class="lbl">Results that reach the torus edge <code>torus-edge</code></span>
-      <select id="f-torusEdge" data-k="torusEdge">
-        <option value="flag">Keep, marked in the output list (default)</option>
-        <option value="drop">Drop them</option>
-        <option value="off">Don't check</option>
-      </select>
-      <small>Such a reaction may wrap around the torus, which cannot happen on an infinite plane.</small>
-    </label>
+  </section>
+
+  <!-- 9. Other lines -->
+  <section class="step" id="s-other">
+    <header><span class="num">9</span><div><h2>Other lines</h2><p>Keywords this form has no field for, and other files to read.</p></div></header>
     <label class="fld"><span class="lbl">Extra lines</span>
       <textarea id="f-extra" data-k="extra" rows="2" spellcheck="false" placeholder="keep-empty o! 10 0"></textarea>
-      <small>Copied into the file as written: anything this form has no field for, such as <code>catalyst-zone</code>, <code>no-catalyst-zone</code> or <code>keep-empty</code> (easiest to draw in a layout file).</small>
+      <small>Copied into the file as written, such as <code>catalyst-zone</code>, <code>no-catalyst-zone</code> or <code>keep-empty</code> (easiest to draw in a layout file).</small>
     </label>
     <label class="fld"><span class="lbl">Include other files <code>include</code></span>
       <textarea id="f-includes" rows="2" spellcheck="false" placeholder="catlists/The_Tiny_List_of_Catalysts"></textarea>

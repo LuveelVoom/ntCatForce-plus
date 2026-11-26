@@ -85,7 +85,7 @@ const LIB = [
   ['Aircraft carrier', '2o$o2bo$2b2o!'], ['Long ship', '2o$obo$bobo$2b2o!'], ['Mango', 'b2o$o2bo$bo2bo$2b2o!'],
   ['Blinker', '3o!'], ['Toad', 'b3o$3o!'], ['Beacon', '2o$o$3bo$2b2o!']
 ];
-const KEYWORDS = new Set(['sort-by', 'rule', 'include', 'cat', 'max-gen', 'num-catalyst', 'num-transparent', 'group-max', 'stable-interval', 'pat', 'search-area',
+const KEYWORDS = new Set(['sort-by', 'rule', 'include', 'cat', 'max-gen', 'num-catalyst', 'num-transparent', 'group-max', 'group-min', 'group-lines', 'group-zone', 'stable-interval', 'pat', 'search-area',
   'exclude-area', 'start-gen', 'last-gen', 'output', 'full-report', 'filter', 'andfilter', 'orfilter', 'match', 'fit-in-width-height',
   'max-category-size', 'symmetry', 'also-required', 'stop-after-cats-destroyed', 'max-junk', 'keep-duplicates', 'keep-interacting',
   'output-gap', 'bait', 'threads', 'max-time', 'max-results', 'output-list', 'verbose', 'part', 'unique-output', 'lightcone',
@@ -96,14 +96,14 @@ const GOAL_CHIPS = [['Glider', 'bo$2bo$3o!'], ['Block', '2o$2o!'], ['Herschel', 
 /* ---------- state ---------- */
 function defaultState() {
   return {
-    rule: 'B3/S23', paste: '', sym: 'C1', patRaw: '', patDx: '0', patDy: '0', baits: [],
+    rule: '', paste: '', sym: 'C1', patRaw: '', patDx: '0', patDy: '0', baits: [],
     cats: [], goals: [], maxJunk: '',
-    maxGen: '100', numCat: '2', stable: '15', areas: [],
+    maxGen: '', numCat: '', stable: '', areas: [],
     startGen: '', lastGen: '', numTransparent: '', stopAfter: '', maxCatSize: '', fitW: '', fitH: '', alsoRle: '', alsoX: '0', alsoY: '0',
-    output: 'results.rle', outputList: '', fullReport: '', threads: '', maxTime: '', maxResults: '', part: '', outputGap: '',
+    output: '', outputList: '', fullReport: '', threads: '', maxTime: '', maxResults: '', part: '', outputGap: '',
     includes: [], keepDup: false, keepInteract: false, verbose: false, splitGap: '6', splitMerge: false,
     torus: '64', spaceshipCutoff: '', torusEdge: 'flag', contactFilter: false, uniqueRecovery: false, findOsc: false, lightconeOff: false,
-    uniqueOutput: '', resumeFrom: '', splitLevel: '', fixed: [], extra: '', groupMax: {}
+    uniqueOutput: '', resumeFrom: '', splitLevel: '', fixed: [], extra: '', groupSet: {}
   };
 }
 function newCat() {
@@ -118,30 +118,37 @@ const newArea = mode => ({mode, x: '', y: '', w: '', h: ''});
 const newGoal = type => ({type, gen: '', rle: '', dx: '0', dy: '0'});
 const newFixed = () => ({rle: '', x: '0', y: '0', maxActive: '20'});
 
-const SIZE_FIELDS = [
+// Fields built from these lists, one list per container in the page (see initStatic)
+const GEN_FIELDS = [
   ['maxGen', 'Generations to simulate', 'max-gen', '250', 'How long each candidate is run.'],
-  ['numCat', 'Catalysts per result', 'num-catalyst', '2', 'Exactly this many (1–5), or a range such as 1-3 for every count in it, plus their symmetric copies. Each extra catalyst multiplies the search time.', false],
-  ['stable', 'Recovery time', 'stable-interval', '15', 'Generations every catalyst must stay intact at the end to count as recovered.']
-];
-const LIMIT_FIELDS = [
+  ['stable', 'Recovery time', 'stable-interval', '15', 'Generations every catalyst must stay intact at the end to count as recovered.'],
   ['startGen', 'First contact no earlier than', 'start-gen', '1', 'Generation of the first catalyst contact.'],
-  ['lastGen', 'First contact no later than', 'last-gen', 'max-gen − 1', ''],
-  ['numTransparent', 'Transparent catalysts allowed', 'num-transparent', '100', 'Counts catalysts marked transparent.'],
-  ['stopAfter', 'Give up after a catalyst breaks', 'stop-after-cats-destroyed', 'never', 'Generations to keep checking goals after a catalyst fails.'],
-  ['maxCatSize', 'Results per output row', 'max-category-size', 'no limit', 'Further results with the same outcome are dropped.'],
+  ['lastGen', 'First contact no later than', 'last-gen', 'max-gen − 1', '']
+];
+const CAT_COUNT_FIELDS = [
+  ['numCat', 'Catalysts per result', 'num-catalyst', '2', 'Exactly this many (1–5), or a range such as 1-3 for every count in it, plus their symmetric copies. Each extra catalyst multiplies the search time.', false],
+  ['numTransparent', 'Transparent catalysts allowed', 'num-transparent', '100', 'Counts catalysts marked transparent.']
+];
+const WHERE_FIELDS = [
   ['spaceshipCutoff', 'Ignore spaceships farther than', 'spaceship-cutoff', '10', 'Cells from the rest of the reaction. No catalyst is placed for an escaped spaceship this far away ("off" to allow it).', false]
 ];
-const RUN_FIELDS = [
+const RESULT_FIELDS = [
+  ['stopAfter', 'Give up after a catalyst breaks', 'stop-after-cats-destroyed', 'never', 'Generations to keep checking goals after a catalyst fails.']
+];
+const OUTPUT_FIELDS = [
   ['output', 'Results file', 'output', 'results.rle', 'Solutions as one RLE, a row per outcome.', false],
   ['outputList', 'Text list of results', 'output-list', 'none', 'Each result as catalyst names and positions.', false],
-  ['fullReport', 'Unfiltered results file', 'full-report', 'none', 'Every result, ignoring the goals in step 4.', false],
+  ['fullReport', 'Unfiltered results file', 'full-report', 'none', 'Every result, ignoring the goals in What counts as a result.', false],
+  ['uniqueOutput', 'One square per outcome', 'unique-output', '<output>_unique.rle', 'File with the first result of each row, in a square grid.', false],
+  ['sortBy', 'Order of results', 'sort-by', 'found', 'recovery, cells, catalysts, junk or frequency; several with commas, e.g. catalysts,recovery.', false],
+  ['outputGap', 'Gap between results', 'output-gap', '10', 'Empty cells between results in the RLE.', true],
+  ['maxCatSize', 'Results per output row', 'max-category-size', 'no limit', 'Further results with the same outcome are dropped.']
+];
+const RUN_FIELDS = [
   ['threads', 'CPU threads', 'threads', 'all cores', 'Same results, only faster.', true],
   ['maxTime', 'Time limit', 'max-time', 'none', 'Stops cleanly and saves: 90, 15m, 2h, 1d.', false],
   ['maxResults', 'Stop after this many results', 'max-results', 'no limit', '', true],
   ['part', 'Run one share of the search', 'part', 'whole search', 'K/N, e.g. 2/4 on the second of four computers.', false],
-  ['outputGap', 'Gap between results', 'output-gap', '10', 'Empty cells between results in the RLE.', true],
-  ['sortBy', 'Order of results', 'sort-by', 'found', 'recovery, cells, catalysts, junk or frequency; several with commas, e.g. catalysts,recovery.', false],
-  ['uniqueOutput', 'One square per outcome', 'unique-output', '<output>_unique.rle', 'File with the first result of each row, in a square grid.', false],
   ['resumeFrom', 'Resume a stopped run', 'resume-from', 'from the start', 'The number a stopped run printed (also in <file>.resume).', true],
   ['splitLevel', 'Thread sharing level', 'split-level', '1', '2 = threads share second-catalyst placements (helps many cores with few first placements).', true]
 ];
@@ -155,11 +162,12 @@ let S = defaultState();
 let split = {objs: [], setups: [], pick: 0};
 let catCache = new Map();
 
-function ruleOk() { return ruleTables(S.rule); }
-function ruleIsotropic() { const rc = checkRule(S.rule); return !(rc.ok && /not isotropic/.test(rc.note || '')); }
+function effRule() { return String(S.rule || '').replace(/\s+/g, '') || 'B3/S23'; }
+function ruleOk() { return ruleTables(effRule()); }
+function ruleIsotropic() { const rc = checkRule(effRule()); return !(rc.ok && /not isotropic/.test(rc.note || '')); }
 
 function catInfo(rle) {
-  const key = S.rule + '|' + rle;
+  const key = effRule() + '|' + rle;
   if (catCache.has(key)) return catCache.get(key);
   const cl = cleanRle(rle), d = decodeRle(cl.rle);
   const info = {error: cl.error, cells: d.cells, w: d.w, h: d.h, n: d.cells.length};
@@ -180,19 +188,32 @@ function catResolved(c) {
 }
 function catLabel(c, i) { return c.name || 'Catalyst ' + (i + 1); }
 
-/* ---------- catalyst groups (cat option group, keyword group-max) ---------- */
+/* ---------- catalyst groups (cat option group; keywords group-max, group-min, group-lines, group-zone) ---------- */
 function catGroups(c) { return [...new Set(String(c.groups || '').split(/[\s,]+/).filter(Boolean))]; }
 function usedGroups(S) { const s = new Set(); for (const c of S.cats) for (const g of catGroups(c)) s.add(g); return [...s]; }
+const newGroup = () => ({max: '', min: '', lines: '', zones: []});
+function groupOf(S, n) { S.groupSet = S.groupSet || {}; return S.groupSet[n] || (S.groupSet[n] = newGroup()); }
 let groupsShown = null;
 function renderGroups() {
   const names = usedGroups(S), key = names.join('\n');
-  if (key === groupsShown) return;   // unchanged: keep focus in a limit being typed
+  if (key === groupsShown) return;   // unchanged: keep focus in a field being typed
   groupsShown = key;
   const box = $('#groupLimits');
   if (!box) return;
-  box.innerHTML = `<h3 style="margin-bottom:4px">Catalyst groups <span class="opt"><code>group-max</code>: at most this many searched catalysts from each group per result</span></h3>` +
-    (names.length ? '<div class="inline">' + names.map(n => `<label class="fld"><span class="lbl">${esc(n)}</span><input type="text" data-group="${esc(n)}" value="${esc((S.groupMax || {})[n] ?? '')}" inputmode="numeric" placeholder="limit"></label>`).join('') + '</div>'
-      : '<small class="hint">Give catalysts a group name (step 3, More options) to cap how many of them a result uses.</small>');
+  const inp = (n, gk, v, ph, lbl, kw) => `<label class="fld"><span class="lbl">${lbl} <code>${kw}</code></span><input type="text" data-group="${esc(n)}" data-gk="${gk}" value="${esc(v ?? '')}" inputmode="numeric" placeholder="${ph}"></label>`;
+  box.innerHTML = `<h3 style="margin-bottom:4px">Catalyst groups <span class="opt">limits on the searched catalysts of each group, per result</span></h3>` +
+    (names.length ? '<div class="list">' + names.map(n => {
+      const g = groupOf(S, n);
+      return `<div class="goal"><b style="flex:0 0 100%">${esc(n)}</b>
+        ${inp(n, 'max', g.max, 'no limit', 'At most', 'group-max')}${inp(n, 'min', g.min, '0', 'At least', 'group-min')}${inp(n, 'lines', g.lines, 'no limit', 'Different cat lines at most', 'group-lines')}
+        ${g.zones.map((z, zi) => `<div class="inline" style="flex:0 0 100%">
+          <label class="fld grow"><span class="lbl">Must lie inside <code>group-zone</code></span><textarea rows="1" spellcheck="false" data-group="${esc(n)}" data-gk="zrle" data-zi="${zi}" placeholder="cells on the torus">${esc(z.rle)}</textarea></label>
+          <label class="fld"><span class="lbl">x</span><input type="text" data-group="${esc(n)}" data-gk="zx" data-zi="${zi}" value="${esc(z.x)}" inputmode="numeric"></label>
+          <label class="fld"><span class="lbl">y</span><input type="text" data-group="${esc(n)}" data-gk="zy" data-zi="${zi}" value="${esc(z.y)}" inputmode="numeric"></label>
+          <button class="small danger" data-act="delGroupZone" data-group="${esc(n)}" data-zi="${zi}">Remove</button></div>`).join('')}
+        <div class="btnrow" style="flex:0 0 100%"><button class="small" data-act="addGroupZone" data-group="${esc(n)}">Add a zone</button><span class="opt">Several zones of one group add up; a catalyst in several groups must satisfy each.</span></div></div>`;
+    }).join('') + '</div>'
+      : '<small class="hint">Give catalysts a group name (More options on a catalyst) to limit how many of them a result uses, require some, or keep them in an area.</small>');
 }
 
 /* ---------- building the file ---------- */
@@ -222,16 +243,27 @@ function build(S, forSetup) {
   } else num('num-catalyst', S.numCat, 1);
   num('start-gen', S.startGen); num('last-gen', S.lastGen); num('num-transparent', S.numTransparent);
   num('stop-after-cats-destroyed', S.stopAfter); num('max-category-size', S.maxCatSize);
+  const g = (v, d) => tr(v) === '' || !isInt(v) ? d : +v;
   const groupNames = usedGroups(S);
   if (groupNames.length > 8) err('Catalyst groups: CatForce allows at most 8 (' + groupNames.length + ' named).');
   for (const name of groupNames) {
     if (!/^[^\s#.]+$/.test(name)) { err('Group name "' + name + '" may not contain "#" or ".".'); continue; }
-    const v = tr((S.groupMax || {})[name]);
-    if (!v) err('Group "' + name + '" needs a limit (More limits → Catalyst groups).');
-    else if (!isInt(v) || +v < 0) err('Group "' + name + '": the limit must be a whole number.');
-    else L.push('group-max ' + name + ' ' + v);
+    const gs = (S.groupSet || {})[name] || newGroup(), out = [];
+    for (const [k, kw] of [['max', 'group-max'], ['min', 'group-min'], ['lines', 'group-lines']]) {
+      const v = tr(gs[k]); if (!v) continue;
+      if (!isInt(v) || +v < 0) err('Group "' + name + '" ' + kw + ': must be a whole number.');
+      else out.push(kw + ' ' + name + ' ' + v);
+    }
+    if (tr(gs.max) && tr(gs.min) && isInt(gs.max) && isInt(gs.min) && +gs.min > +gs.max) err('Group "' + name + '": at least (' + tr(gs.min) + ') is more than at most (' + tr(gs.max) + ').');
+    if (tr(gs.min) && isInt(gs.min) && +gs.min > g(S.numCat.split('-').pop(), 2)) err('Group "' + name + '": at least ' + tr(gs.min) + ' is more than the catalysts per result.');
+    for (const z of gs.zones || []) {
+      const r = rleOf(z.rle, 'Group "' + name + '" zone'); if (!r) continue;
+      if (!isInt(z.x) || !isInt(z.y)) err('Group "' + name + '" zone: x and y must be whole numbers.');
+      else out.push('group-zone ' + name + ' ' + r + ' ' + tr(z.x) + ' ' + tr(z.y));
+    }
+    if (!out.length) err('Group "' + name + '" needs at least one setting (Catalysts → Catalyst groups).');
+    L.push(...out);
   }
-  const g = (v, d) => tr(v) === '' || !isInt(v) ? d : +v;
   const maxGen = g(S.maxGen, 250), startGen = g(S.startGen, 1), lastGen = g(S.lastGen, maxGen - 1), nc = ncRange ? +ncRange[2] : g(S.numCat, 2), stable = g(S.stable, 15);
   if (startGen > lastGen) warn('The first contact window is empty (start-gen ' + startGen + ' is after last-gen ' + lastGen + ').');
   if (nc > 5) err('num-catalyst: CatForce places at most 5 catalysts.');
@@ -253,7 +285,7 @@ function build(S, forSetup) {
   });
 
   const pat = rleOf(S.patRaw, 'Active pattern');
-  if (!pat || pat === '!') err('There is no active pattern yet (step 2).');
+  if (!pat || pat === '!') err('There is no active pattern yet (Starting pattern).');
   else if (!isInt(S.patDx) || !isInt(S.patDy)) err('The active pattern position must be whole numbers.');
   else L.push('pat ' + pat + ' ' + tr(S.patDx) + ' ' + tr(S.patDy));
 
@@ -303,7 +335,7 @@ function build(S, forSetup) {
   });
   num('max-junk', S.maxJunk);
   if (S.goals.length) tip('Goal searches also write ' + (tr(S.output) || 'results.rle').replace(/(\.[^.\/]*)?$/, '_history$1') + ': the same results in the History rule, with the goal cells in red.');
-  if (!S.goals.length && !S.baits.length) tip('No goal (step 4): every reaction where the catalysts recover is reported, including ones where the pattern just dies.');
+  if (!S.goals.length && !S.baits.length) tip('No goal (What counts as a result): every reaction where the catalysts recover is reported, including ones where the pattern just dies.');
 
   // output and running
   if (tr(S.output)) L.push('', 'output ' + fname(S.output));
@@ -347,7 +379,7 @@ function build(S, forSetup) {
   if (extra.length) L.push('', '# extra lines', ...extra);
 
   // catalysts
-  if (!S.cats.length && !includes.length) err('Add at least one catalyst (step 3).');
+  if (!S.cats.length && !includes.length) err('Add at least one catalyst (Catalysts).');
   if (S.cats.length) L.push('', '# catalysts');
   let fewOrient = 0, longMissing = 0;
   S.cats.forEach((c, i) => {
@@ -380,13 +412,13 @@ function build(S, forSetup) {
     L.push(line);
     const cls = info.cls;
     if (cls && !c.sacrificial) {
-      if (cls.type === 'osc' && !tr(c.period)) warn(n + ' oscillates with period ' + cls.period + '. Set its period (step 3) or it can never count as recovered.');
+      if (cls.type === 'osc' && !tr(c.period)) warn(n + ' oscillates with period ' + cls.period + '. Set its period (Catalysts) or it can never count as recovered.');
       else if (cls.type !== 'still' && cls.type !== 'osc') warn(n + ' is not stable in this rule (' + cls.label + '), so it can never recover.');
     }
     if (rs.tries < info.full) fewOrient++;
     if (+c.maxActive >= 50) longMissing++;
   });
-  if (fewOrient) warn(fewOrient + ' catalyst' + (fewOrient > 1 ? 's are' : ' is') + ' only tried in some orientations. Use "Try every orientation" in step 3 unless that is deliberate.');
+  if (fewOrient) warn(fewOrient + ' catalyst' + (fewOrient > 1 ? 's are' : ' is') + ' only tried in some orientations. Use "Try every orientation" in Catalysts unless that is deliberate.');
   if (longMissing) tip(longMissing + ' catalyst' + (longMissing > 1 ? 's' : '') + ' may be missing for 50 or more generations, so a destroyed catalyst that happens to reform still counts. 10 to 30 is typical.');
   return {text: L.join('\n').replace(/^\n+/, '') + '\n', issues};
 }
@@ -637,7 +669,10 @@ function parseIn(text) {
     if (t.length < 2) { ignored.push(line.trim()); continue; }
     if (simple[kw]) { st[simple[kw]] = t[1]; continue; }
     switch (kw) {
-      case 'group-max': if (t.length >= 3) st.groupMax[t[1]] = t[2]; else ignored.push(line.trim()); break;   // a later line overrides, as in CatForce
+      case 'group-max': case 'group-min': case 'group-lines':   // a later line overrides, as in CatForce
+        if (t.length >= 3) groupOf(st, t[1])[kw.slice(6)] = t[2]; else ignored.push(line.trim()); break;
+      case 'group-zone':
+        if (t.length >= 5) groupOf(st, t[1]).zones.push({rle: t[2], x: t[3], y: t[4]}); else ignored.push(line.trim()); break;
       case 'rule': st.rule = t.slice(1).join(''); break;
       case 'output': st.output = t.slice(1).join(' '); break;
       case 'output-list': st.outputList = t.slice(1).join(' '); break;
@@ -722,10 +757,17 @@ function drawCells(cv, cells, color) {
 
 function initStatic() {
   $('#f-sym').innerHTML = SYMS.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}${v === 'C1' ? '' : '  (' + esc(v) + ')'}</option>`).join('');
-  $('#sizeFields').innerHTML = SIZE_FIELDS.map(fieldHTML).join('');
-  $('#limitFields').innerHTML = LIMIT_FIELDS.map(fieldHTML).join('');
-  $('#limitFields').insertAdjacentHTML('afterend', '<div id="groupLimits"></div>');
-  $('#runFields').innerHTML = RUN_FIELDS.map(fieldHTML).join('');
+  for (const [id, list] of [['#genFields', GEN_FIELDS], ['#catCountFields', CAT_COUNT_FIELDS], ['#whereFields', WHERE_FIELDS],
+      ['#resultFields', RESULT_FIELDS], ['#outputFields', OUTPUT_FIELDS], ['#runFields', RUN_FIELDS]])
+    $(id).innerHTML = list.map(fieldHTML).join('');
+  // jump links: mark the section at the top of the window
+  const links = $$('.jump a'), secs = links.map(a => $(a.getAttribute('href')));
+  const mark = () => {
+    let k = 0;
+    secs.forEach((sec, i) => { if (sec.getBoundingClientRect().top < 80) k = i; });
+    links.forEach((a, i) => a.classList.toggle('on', i === k));
+  };
+  addEventListener('scroll', mark, {passive: true}); mark();
 }
 function syncStatic() {
   $$('[data-k]').forEach(el => {
@@ -931,7 +973,7 @@ function catPhases(c) {
   if (!info.n) return [];
   let p = isInt(c.period) && +c.period > 0 ? +c.period : (info.cls && info.cls.type === 'osc' ? info.cls.period : 1);
   p = Math.min(p, 64);
-  const key = 'phases|' + S.rule + '|' + cleanRle(c.rle).rle + '|' + p;
+  const key = 'phases|' + effRule() + '|' + cleanRle(c.rle).rle + '|' + p;
   if (catCache.has(key)) return catCache.get(key);
   const R = ruleOk(), out = [new Set(info.cells.map(q => q.join(',')))];
   if (R.ok) for (let k = 1; k < p; k++) out.push(stepCells(out[k - 1], R));
@@ -1204,7 +1246,7 @@ function analysePaste(apply) {
     ruleNote = 'Rule set to ' + cl.rule + ' from the pattern header. ';
   }
   const R = ruleOk();
-  if (!R.ok) { msg.className = 'msg err'; msg.textContent = 'Fix the rule in step 1 first (' + R.error + ').'; return; }
+  if (!R.ok) { msg.className = 'msg err'; msg.textContent = 'Fix the rule in Rule and board first (' + R.error + ').'; return; }
   const cells = decodeRle(cl.rle).cells;
   if (!cells.length) { msg.className = 'msg err'; msg.textContent = 'The pattern has no live cells.'; return; }
   if (cells.length > 5000) { msg.className = 'msg err'; msg.textContent = 'That pattern is too big to analyse here (' + cells.length + ' cells).'; return; }
@@ -1281,6 +1323,7 @@ function pasteCatalysts() {
 /* ---------- loading ---------- */
 function loadState(st, opts = {}) {
   S = Object.assign(defaultState(), st);
+  if (st && st.groupMax) { for (const [n, v] of Object.entries(st.groupMax)) if (!(S.groupSet || {})[n]) groupOf(S, n).max = v; delete S.groupMax; }
   // Older drafts: imported cat lines (explicit dx, dy) kept the file's coordinates; cells
   // clicked on the thumbnail were already relative to the top-left. Convert the former.
   for (const c of S.cats) if (!c.rel) {
@@ -1316,7 +1359,11 @@ document.addEventListener('input', e => {
   const el = e.target;
   if (el.id === 'f-includes') { S.includes = el.value.split('\n'); update(); return; }
   if (el.id === 'fname') { update(); return; }
-  if (el.dataset && el.dataset.group !== undefined) { S.groupMax = Object.assign({}, S.groupMax, {[el.dataset.group]: el.value}); update(); return; }
+  if (el.dataset && el.dataset.gk) {
+    const gs = groupOf(S, el.dataset.group), gk = el.dataset.gk;
+    if (gk[0] === 'z') gs.zones[+el.dataset.zi][gk === 'zrle' ? 'rle' : gk.slice(1)] = el.value; else gs[gk] = el.value;
+    update(); return;
+  }
   const k = el.dataset && el.dataset.k; if (!k) return;
   setPath(S, k, el.type === 'checkbox' ? el.checked : el.value);
   if (k === 'paste') { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => analysePaste(true), 350); return; }
@@ -1374,6 +1421,8 @@ document.addEventListener('click', async e => {
     case 'delForbid': S.cats[i].forbidden.splice(+b.dataset.j, 1); renderCats(); break;
     case 'delBait': S.baits.splice(i, 1); renderBaits(); break;
     case 'addBait': S.baits.push(newBait()); renderBaits(); break;
+    case 'addGroupZone': groupOf(S, b.dataset.group).zones.push({rle: '', x: '0', y: '0'}); groupsShown = null; renderGroups(); break;
+    case 'delGroupZone': groupOf(S, b.dataset.group).zones.splice(+b.dataset.zi, 1); groupsShown = null; renderGroups(); break;
     case 'delGoal': S.goals.splice(i, 1); renderGoals(); break;
     case 'addMatch': S.goals.push(newGoal('match')); renderGoals(); break;
     case 'addAnd': S.goals.push(newGoal('andfilter')); renderGoals(); break;
@@ -1420,8 +1469,13 @@ document.addEventListener('click', async e => {
       $('#importMsg').className = 'msg ok'; $('#importMsg').textContent = 'Added ' + r.st.cats.length + ' catalysts.';
       return;
     }
-    case 'btnExample': loadState(JSON.parse(JSON.stringify(EXAMPLE)), {example: true}); return;
-    case 'btnReset': $('#resetConfirm').hidden = false; return;
+    case 'btnExample':  // ask first unless the form is still empty
+      if (JSON.stringify(S) === JSON.stringify(defaultState())) loadState(JSON.parse(JSON.stringify(EXAMPLE)), {example: true});
+      else { $('#resetConfirm').hidden = true; $('#exampleConfirm').hidden = false; }
+      return;
+    case 'exampleYes': $('#exampleConfirm').hidden = true; loadState(JSON.parse(JSON.stringify(EXAMPLE)), {example: true}); return;
+    case 'exampleNo': $('#exampleConfirm').hidden = true; return;
+    case 'btnReset': $('#exampleConfirm').hidden = true; $('#resetConfirm').hidden = false; return;
     case 'resetNo': $('#resetConfirm').hidden = true; return;
     case 'resetYes': $('#resetConfirm').hidden = true; loadState(defaultState()); return;
     case 'copy': copyText($('#out').value, $('#copyMsg'), $('#out')); return;
@@ -1470,6 +1524,6 @@ initStatic();
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem('catforce-gen-v2') || 'null'); } catch (e) { saved = null; }
   if (saved && saved.S) { if (saved.fname) $('#fname').value = saved.fname; loadState(saved.S); }
-  else loadState(JSON.parse(JSON.stringify(EXAMPLE)), {example: true});
+  else loadState(defaultState());
 })();
 if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { renderObjs(); renderCats(); update(); });
