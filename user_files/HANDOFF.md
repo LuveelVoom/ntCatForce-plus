@@ -191,7 +191,11 @@ Engine changes (not visible in the input format):
   Groups capped at 1 skip their member pairs' collision masks (in the mask-cache key).
   Checked single-threaded on conway and intb: `group-max r 1` gives the same list as
   `transparent` + `num-transparent 1`, and group-max 0/1/2 and two groups equal the ungrouped list
-  filtered by hand. Test `tests/group.in` (4252). Generator not updated (use "Extra lines").
+  filtered by hand. Test `tests/group.in` (4252).
+  Generator (same day, on request): per-catalyst "Groups" field (space-separated names, writes
+  `group <name>`), and under More limits a "Catalyst groups" list with one limit per name in use
+  (writes `group-max`; missing limit or >8 groups is an error). Import reads both. Checked in
+  jsdom: group.in imported and re-exported runs to the same 4252-result list single-threaded.
 
 ## 5. The generator (catforce_in_generator.html)
 

@@ -85,7 +85,7 @@ const LIB = [
   ['Aircraft carrier', '2o$o2bo$2b2o!'], ['Long ship', '2o$obo$bobo$2b2o!'], ['Mango', 'b2o$o2bo$bo2bo$2b2o!'],
   ['Blinker', '3o!'], ['Toad', 'b3o$3o!'], ['Beacon', '2o$o$3bo$2b2o!']
 ];
-const KEYWORDS = new Set(['sort-by', 'rule', 'include', 'cat', 'max-gen', 'num-catalyst', 'num-transparent', 'stable-interval', 'pat', 'search-area',
+const KEYWORDS = new Set(['sort-by', 'rule', 'include', 'cat', 'max-gen', 'num-catalyst', 'num-transparent', 'group-max', 'stable-interval', 'pat', 'search-area',
   'exclude-area', 'start-gen', 'last-gen', 'output', 'full-report', 'filter', 'andfilter', 'orfilter', 'match', 'fit-in-width-height',
   'max-category-size', 'symmetry', 'also-required', 'stop-after-cats-destroyed', 'max-junk', 'keep-duplicates', 'keep-interacting',
   'output-gap', 'bait', 'threads', 'max-time', 'max-results', 'output-list', 'verbose', 'part', 'unique-output', 'lightcone',
@@ -103,7 +103,7 @@ function defaultState() {
     output: 'results.rle', outputList: '', fullReport: '', threads: '', maxTime: '', maxResults: '', part: '', outputGap: '',
     includes: [], keepDup: false, keepInteract: false, verbose: false, splitGap: '6', splitMerge: false,
     torus: '64', spaceshipCutoff: '', torusEdge: 'flag', contactFilter: false, uniqueRecovery: false, findOsc: false, lightconeOff: false,
-    uniqueOutput: '', resumeFrom: '', splitLevel: '', fixed: [], extra: ''
+    uniqueOutput: '', resumeFrom: '', splitLevel: '', fixed: [], extra: '', groupMax: {}
   };
 }
 function newCat() {
@@ -111,7 +111,7 @@ function newCat() {
   return {name: '', rle: '', maxActive: '20', sym: 'auto', autoOff: true, dx: '0', dy: '0', rel: true,
     forbidden: [], req: {rle: '', x: '0', y: '0'}, anti: {rle: '', x: '0', y: '0'}, locus: {rle: '', x: '0', y: '0'},
     transparent: false, mustinclude: false, checkRecovery: false, sacrificial: false, isBlinker: false, period: '',
-    maxUses: '', zone: {rle: '', x: '0', y: '0'}};
+    maxUses: '', groups: '', zone: {rle: '', x: '0', y: '0'}};
 }
 const newBait = () => ({rle: '', x: '0', y: '0', survive: '', absent: ''});
 const newArea = mode => ({mode, x: '', y: '', w: '', h: ''});
@@ -180,6 +180,21 @@ function catResolved(c) {
 }
 function catLabel(c, i) { return c.name || 'Catalyst ' + (i + 1); }
 
+/* ---------- catalyst groups (cat option group, keyword group-max) ---------- */
+function catGroups(c) { return [...new Set(String(c.groups || '').split(/[\s,]+/).filter(Boolean))]; }
+function usedGroups(S) { const s = new Set(); for (const c of S.cats) for (const g of catGroups(c)) s.add(g); return [...s]; }
+let groupsShown = null;
+function renderGroups() {
+  const names = usedGroups(S), key = names.join('\n');
+  if (key === groupsShown) return;   // unchanged: keep focus in a limit being typed
+  groupsShown = key;
+  const box = $('#groupLimits');
+  if (!box) return;
+  box.innerHTML = `<h3 style="margin-bottom:4px">Catalyst groups <span class="opt"><code>group-max</code>: at most this many searched catalysts from each group per result</span></h3>` +
+    (names.length ? '<div class="inline">' + names.map(n => `<label class="fld"><span class="lbl">${esc(n)}</span><input type="text" data-group="${esc(n)}" value="${esc((S.groupMax || {})[n] ?? '')}" inputmode="numeric" placeholder="limit"></label>`).join('') + '</div>'
+      : '<small class="hint">Give catalysts a group name (step 3, More options) to cap how many of them a result uses.</small>');
+}
+
 /* ---------- building the file ---------- */
 function build(S, forSetup) {
   const L = [], issues = [];
@@ -207,6 +222,15 @@ function build(S, forSetup) {
   } else num('num-catalyst', S.numCat, 1);
   num('start-gen', S.startGen); num('last-gen', S.lastGen); num('num-transparent', S.numTransparent);
   num('stop-after-cats-destroyed', S.stopAfter); num('max-category-size', S.maxCatSize);
+  const groupNames = usedGroups(S);
+  if (groupNames.length > 8) err('Catalyst groups: CatForce allows at most 8 (' + groupNames.length + ' named).');
+  for (const name of groupNames) {
+    if (!/^[^\s#.]+$/.test(name)) { err('Group name "' + name + '" may not contain "#" or ".".'); continue; }
+    const v = tr((S.groupMax || {})[name]);
+    if (!v) err('Group "' + name + '" needs a limit (More limits → Catalyst groups).');
+    else if (!isInt(v) || +v < 0) err('Group "' + name + '": the limit must be a whole number.');
+    else L.push('group-max ' + name + ' ' + v);
+  }
   const g = (v, d) => tr(v) === '' || !isInt(v) ? d : +v;
   const maxGen = g(S.maxGen, 250), startGen = g(S.startGen, 1), lastGen = g(S.lastGen, maxGen - 1), nc = ncRange ? +ncRange[2] : g(S.numCat, 2), stable = g(S.stable, 15);
   if (startGen > lastGen) warn('The first contact window is empty (start-gen ' + startGen + ' is after last-gen ' + lastGen + ').');
@@ -346,6 +370,7 @@ function build(S, forSetup) {
     line += xy('required', c.req, true) + xy('antirequired', c.anti, true) + xy('locus', c.locus, true) + xy('zone', c.zone || {rle: ''}, false);
     for (const m of checkCatCells(c)) (m.t === 'err' ? err : m.t === 'warn' ? warn : tip)(n + ': ' + m.m);
     if (tr(c.maxUses)) { if (!isInt(c.maxUses) || +c.maxUses < 1) err(n + ': "at most" must be a whole number of at least 1.'); else line += ' max-uses ' + tr(c.maxUses); }
+    for (const gname of catGroups(c)) line += ' group ' + gname;
     if (c.transparent) line += ' transparent';
     if (c.mustinclude) line += ' mustinclude';
     if (c.checkRecovery) line += ' check-recovery';
@@ -612,6 +637,7 @@ function parseIn(text) {
     if (t.length < 2) { ignored.push(line.trim()); continue; }
     if (simple[kw]) { st[simple[kw]] = t[1]; continue; }
     switch (kw) {
+      case 'group-max': if (t.length >= 3) st.groupMax[t[1]] = t[2]; else ignored.push(line.trim()); break;   // a later line overrides, as in CatForce
       case 'rule': st.rule = t.slice(1).join(''); break;
       case 'output': st.output = t.slice(1).join(' '); break;
       case 'output-list': st.outputList = t.slice(1).join(' '); break;
@@ -664,6 +690,7 @@ function parseIn(text) {
           }
           else if (w === 'period') { c.period = t[i + 1] || ''; i += 2; }
           else if (w === 'max-uses') { c.maxUses = t[i + 1] || ''; i += 2; }
+          else if (w === 'group') { if (t[i + 1]) c.groups = (c.groups ? c.groups + ' ' : '') + t[i + 1]; i += 2; }
           else if (w === 'zone') { c.zone = {rle: t[i + 1] || '', x: t[i + 2] || '0', y: t[i + 3] || '0'}; i += 4; }
           else if (w === 'transparent') { c.transparent = true; i++; }
           else if (w === 'mustinclude') { c.mustinclude = true; i++; }
@@ -697,6 +724,7 @@ function initStatic() {
   $('#f-sym').innerHTML = SYMS.map(([v, l]) => `<option value="${esc(v)}">${esc(l)}${v === 'C1' ? '' : '  (' + esc(v) + ')'}</option>`).join('');
   $('#sizeFields').innerHTML = SIZE_FIELDS.map(fieldHTML).join('');
   $('#limitFields').innerHTML = LIMIT_FIELDS.map(fieldHTML).join('');
+  $('#limitFields').insertAdjacentHTML('afterend', '<div id="groupLimits"></div>');
   $('#runFields').innerHTML = RUN_FIELDS.map(fieldHTML).join('');
 }
 function syncStatic() {
@@ -845,6 +873,7 @@ function renderCats() {
             <label class="fld"><span class="lbl">dy</span><input type="text" data-k="cats.${i}.dy" value="${esc(c.dy)}" inputmode="numeric"></label>`}
             <label class="fld"><span class="lbl">Period <code>period</code></span><input type="text" data-k="cats.${i}.period" value="${esc(c.period)}" inputmode="numeric" placeholder="1"></label>
             <label class="fld"><span class="lbl">At most per result <code>max-uses</code></span><input type="text" data-k="cats.${i}.maxUses" value="${esc(c.maxUses || '')}" inputmode="numeric" placeholder="no limit"></label>
+            <label class="fld"><span class="lbl">Groups <code>group</code></span><input type="text" data-k="cats.${i}.groups" value="${esc(c.groups || '')}" spellcheck="false" placeholder="none"><small>names, separated by spaces</small></label>
           </div>
           <div class="checks">
             <label class="check"><input type="checkbox" data-k="cats.${i}.isBlinker"${c.isBlinker ? ' checked' : ''}><span>Accept any phase <code>any-phase</code><small>An oscillator counts as recovered in any of its phases.</small></span></label>
@@ -1155,11 +1184,11 @@ function update() {
   $('#runMerge').hidden = !pm;
   if (pm) $('#runMerge').querySelector('code').textContent = './CatForce ' + fn + ' --merge ' +
     Array.from({length: +pm[2]}, (_, k) => out0 + '_part' + (k + 1) + 'of' + pm[2] + '.cfdata').join(' ');
-  renderPatSummary(); symNote(); drawMap();
+  renderPatSummary(); symNote(); drawMap(); renderGroups();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => { try { localStorage.setItem('catforce-gen-v2', JSON.stringify({S, fname: $('#fname').value})); } catch (e) {} }, 400);
 }
-function renderAll() { syncStatic(); renderObjs(); renderSetups(); renderBaits(); renderCats(); renderFixed(); renderGoals(); renderAreas(); update(); }
+function renderAll() { groupsShown = null; syncStatic(); renderObjs(); renderSetups(); renderBaits(); renderCats(); renderFixed(); renderGoals(); renderAreas(); update(); }
 
 /* ---------- starting pattern: split a pasted pattern into objects ---------- */
 function analysePaste(apply) {
@@ -1287,6 +1316,7 @@ document.addEventListener('input', e => {
   const el = e.target;
   if (el.id === 'f-includes') { S.includes = el.value.split('\n'); update(); return; }
   if (el.id === 'fname') { update(); return; }
+  if (el.dataset && el.dataset.group !== undefined) { S.groupMax = Object.assign({}, S.groupMax, {[el.dataset.group]: el.value}); update(); return; }
   const k = el.dataset && el.dataset.k; if (!k) return;
   setPath(S, k, el.type === 'checkbox' ? el.checked : el.value);
   if (k === 'paste') { clearTimeout(pasteTimer); pasteTimer = setTimeout(() => analysePaste(true), 350); return; }
