@@ -3,7 +3,7 @@ conway                        1.2s results: 5/16                  c22a9e7453
 baitA                         0.0s results: 1/2                   969da5d3de
 quad                          0.0s results: 1/2                   3196bd2cb4
 sym                           0.2s results: 2/2                   ae82bda7d0
-ex_orfilter                   0.1s results: 4/5                   533f69cc87
+ex_orfilter                   0.0s results: 1/2                   a560384aa8
 ex_match                      0.9s results: 1/2                   47c2d42ea6
 ex_phase-changing-blinker     0.1s results: 0/0                   d41d8cd98f
 ex_p34                        0.1s results: 0/0                   d41d8cd98f
@@ -12,3 +12,5 @@ b2n                           0.0s results: 1/10                  3dd19d5a19
 auto                          0.1s results: 5/16                  c22a9e7453
 group                         0.1s results: 231/4252              c26870d962
 group2                        0.3s results: 213/4256              63a6661bff
+goal                          0.2s results: 0/0                   d41d8cd98f
+goal-trivial                  0.2s results: 1/3                   7d04e9e8fc

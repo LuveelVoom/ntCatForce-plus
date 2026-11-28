@@ -1,0 +1,12 @@
+# Same as goal.in with trivial-goals yes: only the 3 pass-by results (tub intact) come back.
+rule B3-ek4i5k/S23-n4cw5i
+num-catalyst 1-2
+max-category-size 5
+stop-after-cats-destroyed 1
+pat 4bo$4bo$3bo2bo$3b2obo$2bo$5o2bo$2bo$3b2obo$3bo2bo$4bo$4bo! -4 -5
+match 1-250 4bo$4bo$3bo2bo$3b2obo$2bo$5o2bo$2bo$3b2obo$3bo2bo$4bo$4bo!
+output o_goal-trivial.rle
+trivial-goals yes
+spaceship-cutoff 1
+cat bo$obo$bo! 100 -1 -1 .
+cat 2o$2o! 100 -1 -1 .

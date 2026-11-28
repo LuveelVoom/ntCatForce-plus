@@ -209,6 +209,27 @@ Engine changes (not visible in the input format):
   Generator: Catalyst groups panel has at most / at least / different lines / zones per group;
   drafts with the old `groupMax` map are converted on load.
 
+- 2026-11-27, goal-matching fixes (from the user's `CatForce/PDLL-biglist.in`, B3-ek4i5k/S23-n4cw5i,
+  goal = `match 1-250` of the p56 ship itself; all 13 old 1-3-catalyst results were false, checked in casim):
+  * `stop-after-cats-destroyed n` counted from the search's failure time, which is max-active gens
+    after the catalyst vanished (100 here), so goals long after the catalyst died passed. Now
+    ValidateFilters finds the start of the first missing stretch longer than max-active (per catalyst,
+    with the search's TargetSets, simulating up to filterMaxGen + goal-survive + max-active) and counts from there.
+  * Range/match goals passed if present for one generation. New `goal-survive n|auto`: the found cells,
+    evolved alone, must stay (dead boundary) for n gens; auto = max(stable-interval, own period) for a
+    periodic goal, 0 for a transient one (ex_match's U goal is transient: first tried for all goals, it
+    killed both ex_match results because the U runs into its mirror image). Single-gen filters unchanged.
+  * Goals the catalyst-free reaction also has at the same place, gen and as long (a ship flying past a
+    spark-touched tub) no longer count; `trivial-goals yes` keeps them.
+  * `goal-survive 0` + `trivial-goals yes` = old results (checked identical on ex_match, ex_orfilter).
+    Suite: ex_orfilter 5 -> 2 (the 3 had a block for a single gen; casim agrees on one); new tests
+    goal.in (0) and goal-trivial.in (3). Torus 128 gives the same on ex_orfilter.
+  * Warning when stop-after-cats-destroyed is given without goals (it does nothing then).
+  * stop-after-cats-destroyed / max-junk parse strictly (were atoi).
+  * Not done: generator fields for goal-survive / trivial-goals (use "Extra lines").
+  * Seen, not changed: `match` tries all 8 orientations even in non-isotropic MAP rules;
+    `FilterForCurrentGenFail` is unused.
+
 ## 5. The generator (catforce_in_generator.html)
 
 Built from three pieces in `generator/src/`:

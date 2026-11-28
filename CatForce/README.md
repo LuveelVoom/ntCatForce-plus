@@ -97,6 +97,9 @@ denote optional parameters.
 | `(and/or)filter` | `genOrRange rle dx dy` | Filter that must be matched for the solution to be accepted (see below) |
 | `match` | `genOrRange rle` | Filter that checks whether the pattern occurs anywhere |
 | `max-junk` | `n` | For filters, the maximum non-matching non-catalyst population |
+| `stop-after-cats-destroyed` | `n` | Filters are only checked until `n` generations after the first catalyst disappears for good |
+| `goal-survive` | `n` or `auto` | Generations a range or `match` goal must survive on its own after it is found (see below) |
+| `trivial-goals` | `yes` | Also accept range and `match` goals that the reaction without catalysts has at the same place and generation |
 | `fit-in-width-height` | `w h` | Only allow solutions where all catalysts fit in a `w` by `h` rectangle |
 | `also-required` | `rle x y` | Require `rle` to be present in every generation; it is added to the starting pattern |
 | `output` | `filename` | Output filename |
@@ -175,6 +178,23 @@ anywhere (and otherwise behaves like an `andfilter`).
 
 Filters that use a range of generations will only succeed after every
 catalyst has interacted.
+
+Range and `match` goals (not single-generation filters) are stricter than in
+the original CatForce, where one matching generation was enough:
+- The found cells, evolved on their own, must stay in the pattern (with a dead
+  boundary) for the next `goal-survive` generations. The default `auto` is
+  max(`stable-interval`, the goal's own period) for a still life, oscillator or
+  spaceship goal, and 0 for a transient goal.
+- A match that the reaction without catalysts also has, at the same place and
+  generation and for as long, doesn't count (e.g. a spaceship that flies past a
+  catalyst unchanged). `trivial-goals yes` turns this off.
+
+`goal-survive 0` with `trivial-goals yes` gives the original behaviour.
+
+`stop-after-cats-destroyed n` counts from the generation the catalyst
+disappeared, i.e. the start of a missing stretch longer than its `max-active`
+(the original counted from the end of that stretch, `max-active` generations
+later). It has no effect without filters.
 
 **Forbidden**: Checks for `rle` in the same location as the
 catalyst. If `rle` is matched in any generation, the solution is

@@ -1,0 +1,13 @@
+# Goal checks: the p56 ship must come back (match). Old CatForce found 11 here (1-2 catalysts,
+# no dedup): 8 whose tub was already destroyed (stop-after-cats-destroyed counted from the late
+# max-active failure) and 3 where the ship flies past unchanged. Expected now: 0.
+rule B3-ek4i5k/S23-n4cw5i
+num-catalyst 1-2
+max-category-size 5
+stop-after-cats-destroyed 1
+pat 4bo$4bo$3bo2bo$3b2obo$2bo$5o2bo$2bo$3b2obo$3bo2bo$4bo$4bo! -4 -5
+match 1-250 4bo$4bo$3bo2bo$3b2obo$2bo$5o2bo$2bo$3b2obo$3bo2bo$4bo$4bo!
+output o_goal.rle
+spaceship-cutoff 1
+cat bo$obo$bo! 100 -1 -1 .
+cat 2o$2o! 100 -1 -1 .

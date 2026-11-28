@@ -102,6 +102,14 @@ public:
 
   int stopAfterCatsDestroyed;
   int maxJunk;
+  // Range and match goals: the matched cells, evolved on their own, must stay
+  // present (with a dead boundary) for this many more generations.
+  // -1 = automatic: max(stable-interval, the goal's own period) for a periodic
+  // goal (still life, oscillator, spaceship), 0 for a transient one.
+  int goalSurvive = -1;
+  // Range and match goals: also accept a match that the reaction without any
+  // catalysts has at the same place and generation (and keeps as long).
+  bool trivialGoals = false;
   bool keepDuplicates;
   bool keepInteracting = false; // keep solutions whose catalysts interact with each other
   int outputGap;
@@ -670,7 +678,7 @@ static const char *const kKeywords[] = {
     "rule", "include", "cat", "max-gen", "num-catalyst", "num-transparent", "group-max", "group-min", "group-lines", "group-zone", "stable-interval",
     "pat", "search-area", "exclude-area", "start-gen", "last-gen", "output", "full-report",
     "filter", "andfilter", "orfilter", "match", "fit-in-width-height", "max-category-size",
-    "symmetry", "also-required", "stop-after-cats-destroyed", "max-junk", "keep-duplicates",
+    "symmetry", "also-required", "stop-after-cats-destroyed", "max-junk", "goal-survive", "trivial-goals", "keep-duplicates",
     "keep-interacting", "output-gap", "bait", "threads", "max-time", "max-results", "output-list",
     "verbose", "part", "unique-output", "lightcone", "lightcone-tight", "resume-from", "contact-filter", "split-level",
     "unique-recovery", "find-oscillators",
@@ -1424,10 +1432,25 @@ void ReadParams(const std::string& fname, std::vector<CatalystInput> &catalysts,
       params.alsoRequiredXY = std::make_pair(ParseIntOrDie(elems[2], "also-required x"), ParseIntOrDie(elems[3], "also-required y"));
     }
     if (elems[0] == stopAfterCatsDestroyed){
-      params.stopAfterCatsDestroyed = atoi(elems[1].c_str());
+      if (elems.size() < 2)
+        Die("Format: stop-after-cats-destroyed <n>");
+      params.stopAfterCatsDestroyed = ParseIntOrDie(elems[1], "stop-after-cats-destroyed", 0);
     }
     if (elems[0] == maxJunk){
-      params.maxJunk = atoi(elems[1].c_str());
+      if (elems.size() < 2)
+        Die("Format: max-junk <n>");
+      params.maxJunk = ParseIntOrDie(elems[1], "max-junk", 0);
+    }
+    if (elems[0] == "goal-survive") {
+      if (elems.size() < 2)
+        Die("Format: goal-survive <n> or auto");
+      params.goalSurvive = elems[1] == "auto" ? -1 : ParseIntOrDie(elems[1], "goal-survive", 0);
+    }
+    if (elems[0] == "trivial-goals") {
+      if (elems.size() < 2)
+        Die("Format: trivial-goals yes|no");
+      std::string v = elems[1];
+      params.trivialGoals = !(v == "no" || v == "false" || v == "0" || v == "off");
     }
     if (elems[0] == "keep-interacting") {
       std::string v = elems[1];
@@ -2682,6 +2705,12 @@ public:
   bool reportAll{};
 
   unsigned filterMaxGen{};
+  // Goal persistence (see ValidateFilters): generations each filter's match must
+  // survive on its own (0 for single-generation filters), the reaction without
+  // catalysts (for the trivial-goal test), and how far ValidateFilters simulates.
+  std::vector<unsigned> goalSurviveGens;
+  std::vector<LifeState> baseStates;
+  unsigned validateEnd{};
 
   // Key for the on-disk mask pack. Must change whenever any mask could change:
   // the rule, the catalysts *in order* (the pack is indexed by position), their
@@ -2879,6 +2908,58 @@ public:
     reportAll = params.fullReportFile.length() != 0;
 
     filterMaxGen = FilterMaxGen();
+    SetupGoalChecks();
+  }
+
+  // Period of `s` evolved on its own, up to translation; 0 if none up to `cap`.
+  static unsigned OwnPeriod(const LifeState &s, unsigned cap) {
+    int x0, y0, w, h;
+    const std::string shape = BoundingBoxRle(s, x0, y0, w, h);
+    LifeState cur = s;
+    for (unsigned p = 1; p <= cap; p++) {
+      cur.Step();
+      if (cur.IsEmpty())
+        return 0;
+      int a, b, c, d;
+      if (BoundingBoxRle(cur, a, b, c, d) == shape && c == w && d == h)
+        return p;
+    }
+    return 0;
+  }
+
+  void SetupGoalChecks() {
+    if (params.stopAfterCatsDestroyed >= 0 && targetFilter.empty())
+      std::cout << "Warning: stop-after-cats-destroyed only limits filter/match goals; there are none, so it does nothing" << std::endl;
+    goalSurviveGens.assign(targetFilter.size(), 0);
+    unsigned maxSurvive = 0;
+    for (unsigned k = 0; k < targetFilter.size(); k++) {
+      if (params.filterGen[k] != -1)
+        continue; // a single generation: checked at that generation only, as before
+      unsigned n;
+      if (params.goalSurvive >= 0)
+        n = params.goalSurvive;
+      else {
+        // automatic: only goals meant to last (still life, oscillator, spaceship);
+        // a transient goal exists for a moment by nature
+        unsigned p = OwnPeriod(targetFilter[k].wanted, 256);
+        n = p == 0 ? 0 : std::max(params.stableInterval, p);
+      }
+      goalSurviveGens[k] = n;
+      maxSurvive = std::max(maxSurvive, n);
+    }
+    unsigned maxDis = 0;
+    for (auto &c : catalysts)
+      maxDis = std::max(maxDis, c.maxDisappear + std::max(1u, c.period));
+    validateEnd = filterMaxGen + maxSurvive + (params.stopAfterCatsDestroyed >= 0 ? maxDis : 0) + 1;
+    baseStates.clear();
+    if (!targetFilter.empty() && !params.trivialGoals) {
+      LifeState w;
+      w.JoinWSymChain(pat, params.symmetryChain);
+      for (unsigned g = 0; g <= validateEnd; g++) {
+        baseStates.push_back(w);
+        w.Step();
+      }
+    }
   }
 
   // Baits are added to the starting pattern; each must later be present
@@ -3162,33 +3243,115 @@ public:
     return false;
   }
 
+  // `goal` (live cells, at generation g of `states`) evolved on its own stays
+  // in `states` (with a dead boundary) for the next n generations. With
+  // `cats`, catalyst cells are ignored (match filters look past catalysts).
+  static bool GoalSurvives(const std::vector<LifeState> &states, const std::vector<LifeState> *cats,
+                           unsigned g, LifeState goal, unsigned n) {
+    for (unsigned t = 1; t <= n; t++) {
+      goal.Step();
+      if (g + t >= states.size())
+        return false;
+      LifeState w = states[g + t];
+      if (cats)
+        w &= ~(*cats)[g + t];
+      if (!w.Contains(goal) || !w.AreDisjoint(goal.GetBoundary()))
+        return false;
+    }
+    return true;
+  }
+
+  // The reaction without catalysts already has this goal here at generation g
+  // (and keeps it as long), so the catalysts did not make it.
+  bool TrivialGoal(unsigned g, const LifeState &goal, unsigned n) const {
+    if (baseStates.empty() || g >= baseStates.size())
+      return false;
+    const LifeState &b = baseStates[g];
+    if (!b.Contains(goal) || !b.AreDisjoint(goal.GetBoundary()))
+      return false;
+    return GoalSurvives(baseStates, nullptr, g, goal, n);
+  }
+
   // If `goalCells` is given, it receives the cells where each passed filter's
   // pattern was found (at the generation it was found).
+  //
+  // Range and match filters (unlike the original CatForce, where one matching
+  // generation was enough): the match must also survive on its own for
+  // goalSurviveGens[k] generations, and is not counted if the reaction without
+  // catalysts has it too (unless trivial-goals yes).
+  //
+  // stop-after-cats-destroyed n: filters are only checked up to n generations
+  // after the first catalyst disappears for good (missing at every check for more
+  // than its max-active), counted from when it disappeared. The search only
+  // notices the loss max-active generations later, so `failuretime` alone (used
+  // before) let goals in that appeared long after the catalyst was gone.
   bool ValidateFilters(Configuration &conf, unsigned successtime, unsigned failuretime,
-                       LifeState *goalCells = nullptr) {
-    LifeState workspace = conf.startingCatalysts;
-    workspace.JoinWSymChain(pat, params.symmetryChain);
+                       LifeState *goalCells = nullptr, const std::vector<TargetSet> *targets = nullptr) {
+    thread_local std::vector<LifeState> states, catStates;
+    const unsigned endGen = validateEnd;
+    states.resize(endGen + 1);
+    catStates.resize(endGen + 1);
+    {
+      LifeState w = conf.startingCatalysts;
+      w.JoinWSymChain(pat, params.symmetryChain);
+      LifeState c = conf.startingCatalysts;
+      for (unsigned g = 0; g <= endGen; g++) {
+        states[g] = w;
+        catStates[g] = c;
+        if (g < endGen) {
+          w.Step();
+          c.Step();
+        }
+      }
+    }
 
-    LifeState catalystState = conf.startingCatalysts;
+    unsigned stopTime = filterMaxGen;
+    if (params.stopAfterCatsDestroyed != -1) {
+      unsigned destroyed = failuretime;
+      if (targets) {
+        for (unsigned i = 0; i < conf.count && i < targets->size(); i++) {
+          const CatalystData &c = catalysts[conf.curs[i]];
+          if (c.sacrificial)
+            continue;
+          const unsigned p = std::max(1u, c.period);
+          int streakStart = -1;
+          for (unsigned g = 0; g <= endGen; g++) {
+            if (g % p != 0)
+              continue;
+            if ((*targets)[i].MatchedBy(states[g])) {
+              if (g >= destroyed)
+                break; // present again after the earliest loss found so far
+              streakStart = -1;
+              continue;
+            }
+            if (streakStart < 0)
+              streakStart = g;
+            // gone for good: missing for more than max-active, or until the end
+            if (g - streakStart + p > c.maxDisappear || g + p > endGen) {
+              destroyed = std::min(destroyed, (unsigned)streakStart);
+              break;
+            }
+          }
+        }
+      }
+      stopTime = destroyed + params.stopAfterCatsDestroyed;
+    }
 
     std::vector<bool> filterPassed(params.filterGen.size(), false);
 
-    unsigned stopTime;
-    if (params.stopAfterCatsDestroyed != -1)
-      stopTime = failuretime + params.stopAfterCatsDestroyed;
-    else
-      stopTime = filterMaxGen;
-
     for (unsigned g = 0; g <= std::min(filterMaxGen, stopTime); g++) {
+      const LifeState &workspace = states[g];
+      const LifeState &catalystState = catStates[g];
       for (unsigned k = 0; k < params.filterGen.size(); k++) {
         if (filterPassed[k])
           continue; // No need to check it again.
 
-        bool inSingle = workspace.gen == params.filterGen[k];
+        bool inSingle = (int)g == params.filterGen[k];
         bool inRange = params.filterGen[k] == -1 &&
-                       params.filterGenRange[k].first <= workspace.gen &&
-                       params.filterGenRange[k].second >= workspace.gen;
-        bool shouldCheck = inSingle || (inRange && workspace.gen >= successtime);
+                       params.filterGenRange[k].first <= (int)g &&
+                       params.filterGenRange[k].second >= (int)g;
+        bool shouldCheck = inSingle || (inRange && g >= successtime);
+        const unsigned survive = goalSurviveGens[k];
 
         bool succeeded = false;
         LifeState junk;
@@ -3200,6 +3363,9 @@ public:
           succeeded = workspace.Contains(targetFilter[k]);
           junk = workspace & ~targetFilter[k].wanted & ~catalystState;
           foundCells = targetFilter[k].wanted;
+          if (succeeded && inRange && survive > 0)
+            succeeded = GoalSurvives(states, nullptr, g, foundCells, survive) &&
+                        (params.trivialGoals || !TrivialGoal(g, foundCells, survive));
         }
 
         if (shouldCheck && (params.filterType[k] == MATCHFILTER)) {
@@ -3208,12 +3374,27 @@ public:
             LifeTarget transformed = targetFilter[k];
             transformed.Transform(sym);
             LifeState matches = withoutCatalysts.Match(transformed);
-            if(!matches.IsEmpty()) {
-              succeeded = true;
-              foundCells = matches.Convolve(transformed.wanted) & withoutCatalysts;
-              junk = withoutCatalysts & ~foundCells;
-              break;
-            }
+            if (matches.IsEmpty())
+              continue;
+            // each occurrence separately: one of them must survive (and not be trivial)
+            LifeState good;
+            for (int x = 0; x < N; x++)
+              for (row_t col = matches.state[x]; col; col &= col - 1) {
+                LifeState one;
+                one.state[x] = col & (~col + 1);
+                one.RecalculateMinMax();
+                LifeState cells = one.Convolve(transformed.wanted) & withoutCatalysts;
+                if (survive == 0 ||
+                    (GoalSurvives(states, &catStates, g, cells, survive) &&
+                     (params.trivialGoals || !TrivialGoal(g, cells, survive))))
+                  good |= cells;
+              }
+            if (good.IsEmpty())
+              continue;
+            succeeded = true;
+            foundCells = good;
+            junk = withoutCatalysts & ~matches.Convolve(transformed.wanted);
+            break;
           }
         }
 
@@ -3234,15 +3415,12 @@ public:
         }
 
         // Bail early
-        if (workspace.gen == params.filterGen[k] &&
+        if ((int)g == params.filterGen[k] &&
             params.filterType[k] == ANDFILTER &&
             !workspace.Contains(targetFilter[k])
             )
           return false;
       }
-
-      workspace.Step();
-      catalystState.Step();
     }
 
     for (unsigned k = 0; k < params.filterGen.size(); k++)
@@ -3375,7 +3553,8 @@ public:
   }
 
 
-  void ReportSolution(Configuration &conf, unsigned successtime, unsigned failuretime) {
+  void ReportSolution(Configuration &conf, unsigned successtime, unsigned failuretime,
+                      const std::vector<TargetSet> *targets = nullptr) {
     if (HasForbidden(conf, successtime + 3))
       return;
 
@@ -3407,7 +3586,7 @@ public:
     // If has filter validate them;
     LifeState goal;
     if (hasFilter) {
-      if (!ValidateFilters(conf, successtime, failuretime, &goal))
+      if (!ValidateFilters(conf, successtime, failuretime, &goal, targets))
         return;
     }
 
@@ -4547,7 +4726,7 @@ public:
       CheckOscillator(config, recent, nodeStartGen);
 
     if (success)
-      ReportSolution(config, successtime, failuretime);
+      ReportSolution(config, successtime, failuretime, &shiftedTargets);
   }
 
   // Every catalyst touching `osc` (period q) is complete in some generation of it.
